@@ -1,4 +1,4 @@
-export type Language = 'en' | 'fr';
+export type Language = 'en';
 
 export interface Translations {
   welcome: {
@@ -27,15 +27,68 @@ export interface Translations {
   context: {
     title: string;
     description: string;
+    mode: string;
+    modeCampaign: string;
+    modeChallenge: string;
     campaign: string;
+    challenge: string;
     island: string;
   };
   tabs: {
+    inspector: string;
     resources: string;
     navigation: string;
     combat: string;
     construction: string;
     recruitment: string;
+  };
+  inspector: {
+    title: string;
+    description: string;
+    castleInfo: string;
+    castlePosition: string;
+    leftSide: string;
+    rightSide: string;
+    distance: string;
+    walls: string;
+    trees: string;
+    specialPoints: string;
+    upgradeToL5: string;
+    upgradeToL5Horn: string;
+    demoteToMound: string;
+    batchUpgradeBuilt: string;
+    batchUpgradeAll: string;
+    markTree: string;
+    unmarkTree: string;
+    markRange: string;
+    unmarkRange: string;
+    standing: string;
+    markedToCut: string;
+    nearBeggarCampWarn: string;
+    totalWalls: string;
+    totalTrees: string;
+    rangeFrom: string;
+    rangeTo: string;
+    applyRange: string;
+    level: string;
+    deitiesTitle: string;
+    unlockAllDeities: string;
+    activateAllDeities: string;
+    lockAllDeities: string;
+    deityStatusLocked: string;
+    deityStatusUnlocked: string;
+    deityStatusActive: string;
+    towers: string;
+    upgradeToL6: string;
+    upgradeToL5Roof: string;
+    upgradeToBallista: string;
+    upgradeToBaker: string;
+    upgradeToKnightTower: string;
+    demoteTowerToMound: string;
+    batchUpgradeTowersRoof: string;
+    batchUpgradeTowersL6: string;
+    upgradeCastleIron: string;
+    upgradeCastleStone: string;
   };
   resources: {
     title: string;
@@ -66,12 +119,22 @@ export interface Translations {
     archers: string;
     workers: string;
     formationOffset: string;
+    teleportTitle: string;
+    teleportX: string;
+    teleportButton: string;
+    teleportToCastle: string;
   };
   combat: {
     title: string;
     battleFormation: string;
     deploy: string;
     positionX: string;
+    catapultAmmo: string;
+    catapultLeft: string;
+    catapultRight: string;
+    catapultApply: string;
+    barrelsCount: string;
+    noCatapultOnIsland: string;
   };
   construction: {
     title: string;
@@ -86,7 +149,12 @@ export interface Translations {
     workers: string;
     farmers: string;
     pikemen: string;
+    knights: string;
     quantity: string;
+    side: string;
+    sideLeft: string;
+    sideRight: string;
+    withArchers: string;
     add: string;
     combinedRecruitment: string;
     addUnits: string;
@@ -99,6 +167,7 @@ export interface Translations {
     workersAdded: string;
     farmersAdded: string;
     pikemenAdded: string;
+    knightsAdded: string;
     destinationUpdated: string;
     islandSecured: string;
     portalsDestroyed: string;
@@ -110,6 +179,16 @@ export interface Translations {
     noFileLoaded: string;
     saveApplied: string;
     addAtLeastOneUnit: string;
+    wallUpdated: string;
+    wallsBatchUpdated: string;
+    castleUpdated: string;
+    towerUpdated: string;
+    towersBatchUpdated: string;
+    treeMarkUpdated: string;
+    deityUpdated: string;
+    deitiesAllUpdated: string;
+    catapultOilUpdated: string;
+    playerTeleported: string;
   };
 }
 
@@ -140,16 +219,69 @@ const translations: Record<Language, Translations> = {
     },
     context: {
       title: 'Context',
-      description: 'Select the campaign and island to edit.',
+      description: 'Select the campaign, challenge, and island to edit.',
+      mode: 'Mode',
+      modeCampaign: 'Campaign Mode',
+      modeChallenge: 'Challenge Mode',
       campaign: 'Campaign',
+      challenge: 'Challenge Island',
       island: 'Island',
     },
     tabs: {
+      inspector: 'Island Map & Inspector',
       resources: 'Resources',
       navigation: 'Navigation',
       combat: 'Combat',
       construction: 'Construction',
       recruitment: 'Recruitment',
+    },
+    inspector: {
+      title: 'Island Inspector',
+      description: 'Coordinates of Castle, Walls and Trees along the X axis.',
+      castleInfo: 'Town Center / Castle',
+      castlePosition: 'Castle Position',
+      leftSide: 'Left Side (X < Castle)',
+      rightSide: 'Right Side (X > Castle)',
+      distance: 'Dist:',
+      walls: 'Walls & Fortifications',
+      trees: 'Trees & Vegetation',
+      specialPoints: 'Key Locations & Landmarks',
+      upgradeToL5: 'Upgrade to L5 (Iron)',
+      upgradeToL5Horn: 'Upgrade to L5 + Horn',
+      demoteToMound: 'Reset to Dirt Mound (L0)',
+      batchUpgradeBuilt: 'Upgrade All Built Walls to L5',
+      batchUpgradeAll: 'Upgrade All (including Mounds) to L5',
+      markTree: 'Mark to Cut',
+      unmarkTree: 'Keep Tree',
+      markRange: 'Mark range',
+      unmarkRange: 'Unmark range',
+      standing: 'Standing',
+      markedToCut: 'Marked to cut',
+      nearBeggarCampWarn: '⚠️ Near Beggar Camp (Do not cut!)',
+      totalWalls: 'Total Walls:',
+      totalTrees: 'Total Trees:',
+      rangeFrom: 'From X:',
+      rangeTo: 'To X:',
+      applyRange: 'Apply Range',
+      level: 'Level',
+      deitiesTitle: 'Shrines & Deities',
+      unlockAllDeities: 'Unlock All Shrines',
+      activateAllDeities: '⚡ Activate All Shrines (Full Buff)',
+      lockAllDeities: 'Lock All Shrines',
+      deityStatusLocked: '🔒 Locked',
+      deityStatusUnlocked: '🔓 Unlocked',
+      deityStatusActive: '✨ Active Buff',
+      towers: 'Archer Towers & Ballistas',
+      upgradeToL6: 'L6 (4 Archers)',
+      upgradeToL5Roof: 'L5 (Roof)',
+      upgradeToBallista: 'Ballista',
+      upgradeToBaker: 'Bakery',
+      upgradeToKnightTower: 'Knight Tower',
+      demoteTowerToMound: 'Reset to Dirt Mound (L0)',
+      batchUpgradeTowersRoof: 'Upgrade All Towers to L5 (Roof)',
+      batchUpgradeTowersL6: 'Upgrade All Towers to L6 (4 Archers)',
+      upgradeCastleIron: 'Upgrade Castle to Iron (Level 7)',
+      upgradeCastleStone: 'Upgrade Castle to Stone (Level 4)',
     },
     resources: {
       title: 'Resources',
@@ -180,12 +312,22 @@ const translations: Record<Language, Translations> = {
       archers: 'Archers',
       workers: 'Workers',
       formationOffset: 'Formation offset',
+      teleportTitle: 'Teleport Ruler (Change Position)',
+      teleportX: 'Target Position X',
+      teleportButton: '⚡ Teleport',
+      teleportToCastle: 'Center / Castle',
     },
     combat: {
       title: 'Combat',
       battleFormation: 'Battle formation',
       deploy: 'Deploy',
       positionX: 'Position X',
+      catapultAmmo: 'Catapult Oil Barrels',
+      catapultLeft: 'Left Catapult',
+      catapultRight: 'Right Catapult',
+      catapultApply: 'Set Barrels',
+      barrelsCount: 'Oil Barrels',
+      noCatapultOnIsland: 'No Catapult found on this side of the island',
     },
     construction: {
       title: 'Construction',
@@ -200,7 +342,12 @@ const translations: Record<Language, Translations> = {
       workers: 'Workers',
       farmers: 'Farmers',
       pikemen: 'Pikemen',
+      knights: 'Knights',
       quantity: 'Quantity',
+      side: 'Border Side',
+      sideLeft: 'Left',
+      sideRight: 'Right',
+      withArchers: 'Include 4 Squad Archers',
       add: 'Add',
       combinedRecruitment: 'Combined recruitment',
       addUnits: 'Add units',
@@ -213,6 +360,7 @@ const translations: Record<Language, Translations> = {
       workersAdded: 'Workers added',
       farmersAdded: 'Farmers added',
       pikemenAdded: 'Pikemen added',
+      knightsAdded: 'Knights added to Castle',
       destinationUpdated: 'Destination updated',
       islandSecured: 'Island secured',
       portalsDestroyed: 'Portals destroyed',
@@ -224,129 +372,21 @@ const translations: Record<Language, Translations> = {
       noFileLoaded: 'No file loaded',
       saveApplied: 'Save applied',
       addAtLeastOneUnit: 'Enter at least one unit to add',
-    },
-  },
-  fr: {
-    welcome: {
-      title: 'Éditeur Kingdom Two Crowns',
-      subtitle: 'Modifiez vos sauvegardes facilement',
-      osDetected: 'Système détecté :',
-      defaultPath: 'Emplacement de sauvegarde par défaut :',
-      pathHint: 'Le sélecteur de fichier ouvrira automatiquement ce dossier',
-      openFile: 'Ouvrir global-v35',
-      loading: 'Chargement...',
-      features: {
-        resources: { title: 'Ressources', desc: 'Modifiez vos pièces et gemmes' },
-        navigation: { title: 'Navigation', desc: 'Voyagez instantanément entre les îles' },
-        combat: { title: 'Combat', desc: 'Déployez vos formations de combat' },
-        construction: { title: 'Construction', desc: 'Améliorez votre royaume' },
-        recruitment: { title: 'Recrutement', desc: 'Ajoutez archers, ouvriers et plus' },
-      },
-    },
-    header: {
-      title: 'Éditeur Kingdom Two Crowns',
-      changeFile: 'Changer de fichier',
-      save: '💾 Sauvegarder',
-      backupCreated: 'Copie de sauvegarde:',
-      filePath: '📁',
-    },
-    context: {
-      title: 'Contexte',
-      description: 'Sélectionnez la campagne et l\'île à modifier.',
-      campaign: 'Campagne',
-      island: 'Île',
-    },
-    tabs: {
-      resources: 'Ressources',
-      navigation: 'Navigation',
-      combat: 'Combat',
-      construction: 'Construction',
-      recruitment: 'Recrutement',
-    },
-    resources: {
-      title: 'Ressources',
-      playerCoins: 'Or du joueur',
-      playerGems: 'Gemmes du joueur',
-      player: 'Joueur',
-      coins: 'Pièces',
-      gems: 'Gemmes',
-      apply: 'Appliquer',
-      current: 'Actuel:',
-    },
-    navigation: {
-      title: 'Navigation & conquête',
-      fastTravel: 'Voyage rapide',
-      takeOver: 'Prendre le contrôle',
-      destroyPortals: 'Détruire les portails',
-      exterminate: 'Exterminer les ennemis',
-      markTrees: 'Élaguer la forêt',
-      updateDestination: 'Mettre à jour la destination',
-      cleanIsland: 'Nettoyer l\'île',
-      destroy: 'Détruire les portails',
-      exterminateEnemies: 'Exterminer les ennemis',
-      mark: 'Marquer les arbres',
-      pikemen: 'Piquiers',
-      farmers: 'Fermiers',
-      boats: 'Bateaux',
-      playerCoins: 'Pièces du joueur',
-      archers: 'Archers',
-      workers: 'Ouvriers',
-      formationOffset: 'Décalage formation',
-    },
-    combat: {
-      title: 'Combat',
-      battleFormation: 'Formation de bataille',
-      deploy: 'Déployer',
-      positionX: 'Position X',
-    },
-    construction: {
-      title: 'Construction',
-      pimpIsland: 'Pimper l\'île',
-      upgrade: 'Mettre à niveau',
-      unitsToRecruit: 'Unités à recruter',
-    },
-    recruitment: {
-      title: 'Recrutement',
-      rallyPoint: 'Point de rassemblement',
-      archers: 'Archers',
-      workers: 'Ouvriers',
-      farmers: 'Fermiers',
-      pikemen: 'Piquiers',
-      quantity: 'Quantité',
-      add: 'Ajouter',
-      combinedRecruitment: 'Recrutement combiné',
-      addUnits: 'Ajouter les unités',
-      current: 'Actuel:',
-    },
-    status: {
-      coinsUpdated: 'Pièces mises à jour',
-      gemsUpdated: 'Gemmes mises à jour',
-      archersAdded: 'Archers ajoutés',
-      workersAdded: 'Ouvriers ajoutés',
-      farmersAdded: 'Fermiers ajoutés',
-      pikemenAdded: 'Piquiers ajoutés',
-      destinationUpdated: 'Destination mise à jour',
-      islandSecured: 'Île sécurisée',
-      portalsDestroyed: 'Portails détruits',
-      enemiesRemoved: 'Ennemis supprimés',
-      formationDeployed: 'Formation déployée',
-      islandUpgraded: 'Île améliorée',
-      treesMarked: 'Arbres marqués',
-      unitsAdded: 'Unités ajoutées',
-      noFileLoaded: 'Aucun fichier chargé',
-      saveApplied: 'Sauvegarde appliquée',
-      addAtLeastOneUnit: 'Saisissez au moins une unité à ajouter',
+      wallUpdated: 'Wall upgraded successfully',
+      wallsBatchUpdated: 'All selected walls upgraded',
+      castleUpdated: 'Castle upgraded successfully',
+      towerUpdated: 'Tower upgraded successfully',
+      towersBatchUpdated: 'All selected towers upgraded',
+      treeMarkUpdated: 'Tree marking updated',
+      deityUpdated: 'Shrine status updated',
+      deitiesAllUpdated: 'All shrines updated successfully',
+      catapultOilUpdated: 'Catapult oil barrels updated successfully',
+      playerTeleported: 'Player teleported successfully',
     },
   },
 };
 
 export function detectLanguage(): Language {
-  const browserLang = navigator.language.toLowerCase();
-  
-  if (browserLang.startsWith('fr')) {
-    return 'fr';
-  }
-  
   return 'en';
 }
 

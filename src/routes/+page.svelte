@@ -10,6 +10,7 @@
     spawnArchers,
     spawnFarmers,
     spawnPikemen,
+    spawnKnights,
     spawnWorkers,
     destroyPortals,
     exterminateEnemies,
@@ -18,12 +19,89 @@
     pimpIsland,
     spawnUnits,
     startFormationAssault,
-    takeOverIsland
+    takeOverIsland,
+    getIslandOverview,
+    upgradeSpecificWall,
+    batchUpgradeWalls,
+    upgradeIslandCastle,
+    upgradeSpecificTower,
+    batchUpgradeTowers,
+    setTreeMark,
+    setDeityStatus,
+    unlockAllDeities,
+    setCatapultOilBarrels,
+    teleportPlayer,
+    type IslandOverview,
+    type WallInfo,
+    type TowerInfo,
+    type TowerType,
+    type CatapultInfo,
+    type TreeInfo,
+    type DeityInfo
   } from "$lib/saveEditActions";
 
   interface LoadResponse {
     path: string;
     data: JSONValue;
+  }
+
+  interface AssetSettings {
+    griffinRunSpeed: number;
+    griffinForestMultiplier: number;
+    griffinRunStaminaRate: number;
+    griffinSkillStaminaCost: number;
+    griffinPushWidth: number;
+    griffinPushHeight: number;
+    lizardRunSpeed: number;
+    lizardRunStaminaRate: number;
+    lizardSkillStaminaCost: number;
+    horseRunSpeed: number;
+    horseRunStaminaRate: number;
+    warhorseRunSpeed: number;
+    warhorseRunStaminaRate: number;
+    warhorsePlagueRunSpeed: number;
+    warhorsePlagueRunStaminaRate: number;
+    warhorseSkillStaminaCost: number;
+    warhorseCooldown: number;
+    warhorsePlagueCooldown: number;
+    warhorseBuffDuration: number;
+    warhorseBuffRange: number;
+    archerWalkSpeed: number;
+    archerRunSpeed: number;
+    archerShootPrepTime: number;
+    archerShootCooldownTime: number;
+    archerShootCooldownWithKnightTime: number;
+    archerIntervalMin: number;
+    archerIntervalMax: number;
+    archerFormationIntervalMin: number;
+    archerFormationIntervalMax: number;
+    builderWalkSpeed: number;
+    builderRunSpeed: number;
+    builderWorkTime: number;
+    wall5StandardHitPoints: number;
+    wall5NorselandsHitPoints: number;
+    knightWalletCapacity: number;
+    playerWalletCapacity: number;
+    knightWalletPayTaxesAbove: number;
+    knightCoinDropProbability: number;
+    bagScale: number;
+  }
+
+  interface AssetResponse {
+    dataDirectory: string;
+    settings: AssetSettings;
+  }
+
+  interface AssetApplyResponse {
+    resourcesBackup: string;
+    sharedAssetsBackup: string;
+    settings: AssetSettings;
+    saveClearedWalls?: number | null;
+  }
+
+  interface ColliderLimitResponse {
+    limit: number;
+    backup: string | null;
   }
 
   let filePath = $state<string | null>(null);
@@ -32,7 +110,30 @@
   let statusType = $state<"error" | "success" | null>(null);
   let statusMessage = $state<string | null>(null);
   let backupPath = $state<string | null>(null);
-  let selectedKey = $state<string | null>(null);
+  let assetMode = $state(false);
+  let assetDirectory = $state<string | null>(null);
+  let assetSettings = $state<AssetSettings | null>(null);
+  let assetBusy = $state(false);
+  let assetStatus = $state<string | null>(null);
+  let assetError = $state<string | null>(null);
+  let assetBackups = $state<string[]>([]);
+  let warhorseColliderLimit = $state<number | null>(null);
+  let coinVisualLimit = $state(30);
+  let coinVisualCurrent = $state<number | null>(null);
+  let coinVisualAvailable = $state(false);
+  let coinVisualStatus = $state<string | null>(null);
+  let coinVisualError = $state<string | null>(null);
+  let campEnabled = $state(false);
+  let campNeedsUpgrade = $state(false);
+  let campAvailable = $state(false);
+  let campStatus = $state<string | null>(null);
+  let campError = $state<string | null>(null);
+  let warhorseColliderBackup = $state<string | null>(null);
+  let warhorseColliderError = $state<string | null>(null);
+  let warhorseColliderStatus = $state<string | null>(null);
+  let resetSaveWalls = $state(true);
+  let targetMode = $state<"campaign" | "challenge">("campaign");
+  let selectedChallenge = $state(1); // Default to Plague Island if available
   let selectedCampaign = $state(0);
   let selectedIsland = $state(0);
   let coinsPlayerIndex = $state(0);
@@ -43,6 +144,9 @@
   let workerCount = $state(1);
   let farmerCount = $state(1);
   let pikemanCount = $state(1);
+  let knightCount = $state(1);
+  let knightSide = $state<1 | -1>(1);
+  let knightWithArchers = $state(true);
   let coinsSelectionSignature = $state<string | null>(null);
   let lastCoinsData = $state<JSONValue | null>(null);
   let gemsSelectionSignature = $state<string | null>(null);
@@ -61,6 +165,8 @@
   let formationPosition = $state(0);
   let formationArchers = $state(5);
   let formationPikemen = $state(5);
+  let teleportPlayerIndex = $state(0);
+  let teleportTargetX = $state(0);
   let pimpCoins = $state(69);
   let pimpSpawnCount = $state(10);
   let treesPlayerIndex = $state(0);
@@ -68,9 +174,46 @@
   let comboArchers = $state(0);
   let comboWorkers = $state(0);
   let comboPikemen = $state(0);
-  let activeTab = $state<'resources' | 'navigation' | 'combat' | 'construction' | 'recruitment'>('resources');
+  let activeTab = $state<'inspector' | 'resources' | 'navigation' | 'combat' | 'construction' | 'recruitment'>('inspector');
   let currentLang = $state<Language>(detectLanguage());
   let t = $derived(getTranslations(currentLang));
+
+  let islandOverview = $derived(
+    data ? getIslandOverview(data, {
+      campaignIndex: selectedCampaign,
+      islandIndex: selectedIsland,
+      targetMode: targetMode,
+      challengeIndex: selectedChallenge
+    }) : null
+  );
+
+  let leftCatapult = $derived(
+    islandOverview?.catapults.find(c => c.side === -1) ?? null
+  );
+  let rightCatapult = $derived(
+    islandOverview?.catapults.find(c => c.side === 1) ?? null
+  );
+
+  let customLeftBarrels = $state<number | null>(null);
+  let customRightBarrels = $state<number | null>(null);
+
+  let leftCatapultInput = $derived(
+    customLeftBarrels !== null ? customLeftBarrels : (leftCatapult?.oilBarrels ?? 30)
+  );
+  let rightCatapultInput = $derived(
+    customRightBarrels !== null ? customRightBarrels : (rightCatapult?.oilBarrels ?? 30)
+  );
+
+  let knightStats = $derived(
+    countKnightsBySide(data, selectedCampaign, selectedIsland, targetMode, selectedChallenge)
+  );
+
+  let treeFilterSide = $state<'all' | 'left' | 'right'>('all');
+  let treeFilterStatus = $state<'all' | 'standing' | 'marked' | 'danger'>('all');
+  let treeRangeMin = $state(-50);
+  let treeRangeMax = $state(50);
+  let wallFilterSide = $state<'all' | 'left' | 'right'>('all');
+  let towerFilterSide = $state<'all' | 'left' | 'right'>('all');
 
   interface CampaignSummary {
     label: string;
@@ -102,7 +245,7 @@
     } else if (platform.includes('linux') || userAgent.includes('linux')) {
       return 'Linux';
     } else {
-      return 'Système détecté';
+      return 'Unknown system';
     }
   }
 
@@ -128,41 +271,59 @@
     "Prefabs/Characters/norselands/Knight_norselands",
     "Prefabs/Characters/norselands/Pikeman_norselands"
   ];
+  const KNIGHT_PREFABS = [
+    "Prefabs/Characters/Knight",
+    "Prefabs/Characters/Squire",
+    "Prefabs/Characters/norselands/Knight_norselands"
+  ];
+
+  function getContextObjects(
+    value: JSONValue | null,
+    mode: "campaign" | "challenge",
+    campaignIndex: number,
+    islandIndex: number,
+    challengeIndex: number
+  ): JSONValue[] | null {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return null;
+    }
+
+    const root = value as Record<string, JSONValue>;
+    if (mode === "challenge") {
+      const challenges = root.challenges;
+      if (!Array.isArray(challenges)) return null;
+      const challenge = challenges[challengeIndex];
+      if (!challenge || typeof challenge !== "object" || Array.isArray(challenge)) return null;
+      const islands = (challenge as Record<string, JSONValue>)._islands;
+      if (!Array.isArray(islands) || islands.length === 0) return null;
+      const island = islands[0];
+      if (!island || typeof island !== "object" || Array.isArray(island)) return null;
+      const objects = (island as Record<string, JSONValue>).objects;
+      return Array.isArray(objects) ? objects : null;
+    }
+
+    const campaigns = root.campaigns;
+    if (!Array.isArray(campaigns)) return null;
+    const campaign = campaigns[campaignIndex];
+    if (!campaign || typeof campaign !== "object" || Array.isArray(campaign)) return null;
+    const islands = (campaign as Record<string, JSONValue>)._islands;
+    if (!Array.isArray(islands)) return null;
+    const island = islands[islandIndex];
+    if (!island || typeof island !== "object" || Array.isArray(island)) return null;
+    const objects = (island as Record<string, JSONValue>).objects;
+    return Array.isArray(objects) ? objects : null;
+  }
 
   function countUnits(
     value: JSONValue | null,
     campaignIndex: number,
     islandIndex: number,
-    prefabs: string[]
+    prefabs: string[],
+    mode: "campaign" | "challenge" = "campaign",
+    challengeIndex: number = 0
   ): number | null {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-      return null;
-    }
-
-    const campaigns = (value as Record<string, JSONValue>).campaigns;
-    if (!Array.isArray(campaigns)) {
-      return null;
-    }
-
-    const campaign = campaigns[campaignIndex];
-    if (!campaign || typeof campaign !== "object" || Array.isArray(campaign)) {
-      return null;
-    }
-
-    const islands = (campaign as Record<string, JSONValue>)._islands;
-    if (!Array.isArray(islands)) {
-      return null;
-    }
-
-    const island = islands[islandIndex];
-    if (!island || typeof island !== "object" || Array.isArray(island)) {
-      return null;
-    }
-
-    const objects = (island as Record<string, JSONValue>).objects;
-    if (!Array.isArray(objects)) {
-      return null;
-    }
+    const objects = getContextObjects(value, mode, campaignIndex, islandIndex, challengeIndex);
+    if (!objects) return null;
 
     return objects.reduce<number>((count, entry) => {
       if (entry && typeof entry === "object" && !Array.isArray(entry)) {
@@ -174,6 +335,53 @@
       }
       return count;
     }, 0);
+  }
+
+  function countKnightsBySide(
+    value: JSONValue | null,
+    campaignIndex: number,
+    islandIndex: number,
+    mode: "campaign" | "challenge" = "campaign",
+    challengeIndex: number = 0
+  ): { total: number; left: number; right: number } {
+    const objects = getContextObjects(value, mode, campaignIndex, islandIndex, challengeIndex);
+    if (!objects) {
+      return { total: 0, left: 0, right: 0 };
+    }
+
+    let left = 0;
+    let right = 0;
+
+    for (const entry of objects) {
+      if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+        const record = entry as Record<string, JSONValue>;
+        const prefabPath = record.prefabPath;
+        if (typeof prefabPath === "string" && KNIGHT_PREFABS.some((prefab) => prefabPath.includes(prefab))) {
+          let side = 1;
+          const comps = record.componentData2 as any;
+          if (Array.isArray(comps)) {
+            const kComp = comps.find((c) => c && typeof c === "object" && c.name === "Knight") as any;
+            if (kComp && typeof kComp.data === "string") {
+              try {
+                const parsed = JSON.parse(kComp.data);
+                if (typeof parsed.side === "number") {
+                  side = parsed.side;
+                }
+              } catch {
+                // ignore
+              }
+            }
+          }
+          if (side < 0) {
+            left++;
+          } else {
+            right++;
+          }
+        }
+      }
+    }
+
+    return { total: left + right, left, right };
   }
 
   function computeCampaignSummaries(value: JSONValue | null): CampaignSummary[] {
@@ -193,9 +401,45 @@
       const biome = typeof record.biomeIndex === "number" ? record.biomeIndex : null;
       const islandCount = Array.isArray(record._islands) ? record._islands.length : 0;
       return {
-        label: biome === null ? `Campagne ${index + 1}` : `Campagne ${index + 1} (Biome ${biome})`,
+        label: biome === null ? `Campaign ${index + 1}` : `Campaign ${index + 1} (Biome ${biome})`,
         islands: islandCount,
       } satisfies CampaignSummary;
+    });
+  }
+
+  interface ChallengeSummary {
+    index: number;
+    challengeId: number;
+    label: string;
+  }
+
+  function computeChallengeSummaries(value: JSONValue | null): ChallengeSummary[] {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return [];
+    }
+
+    const challenges = (value as Record<string, JSONValue>).challenges;
+    if (!Array.isArray(challenges)) {
+      return [];
+    }
+
+    return challenges.map((entry, index) => {
+      const record = entry && typeof entry === "object" && !Array.isArray(entry)
+        ? (entry as Record<string, JSONValue>)
+        : {};
+      const cid = typeof record.challengeId === "number" ? record.challengeId : index;
+      let name = `Challenge ${index + 1}`;
+      if (cid === 2) name = "Plague Island";
+      else if (cid === 0) name = "Skull Island";
+      else if (cid === 1) name = "Plague Island";
+      else if (cid === 3) name = "Dire Island";
+      else if (cid === 4) name = "Trade Routes";
+      else if (cid === 9) name = "Lost Islands / Daily";
+      return {
+        index,
+        challengeId: cid,
+        label: name,
+      } satisfies ChallengeSummary;
     });
   }
 
@@ -239,9 +483,9 @@
 
     try {
       isLoading = true;
-      console.info("Sélection d'un fichier global-v35 en cours");
+      console.info("Selecting a global-v35 file");
       const response = await invoke<LoadResponse>("select_save_file");
-      console.info("Fichier global-v35 chargé", {
+      console.info("global-v35 file loaded", {
         path: response.path,
         topLevelKeys: response.data && typeof response.data === "object" && !Array.isArray(response.data)
           ? Object.keys(response.data as Record<string, JSONValue>)
@@ -251,19 +495,11 @@
       filePath = response.path;
       selectedCampaign = 0;
       selectedIsland = 0;
-      selectedKey = (() => {
-        if (!response.data || typeof response.data !== "object" || Array.isArray(response.data)) {
-          return null;
-        }
-
-        const keys = Object.keys(response.data as Record<string, JSONValue>);
-        return keys.length > 0 ? keys[0] : null;
-      })();
       showSuccess("global-v35 loaded");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error("Erreur lors du chargement de global-v35", error);
-      if (message !== "Sélection annulée") {
+      console.error("Failed to load global-v35", error);
+      if (message !== "Selection cancelled") {
         showError(message);
       }
     } finally {
@@ -281,14 +517,14 @@
 
     try {
       isLoading = true;
-      console.info("Rechargement du fichier", { path: filePath });
+      console.info("Reloading file", { path: filePath });
       const response = await invoke<LoadResponse>("load_save_file", { path: filePath });
       data = response.data;
-      console.info("Fichier rechargé avec succès");
+      console.info("File reloaded successfully");
       showSuccess("Save file reloaded");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error("Erreur lors du rechargement", error);
+      console.error("Failed to reload file", error);
       showError(message);
     } finally {
       isLoading = false;
@@ -307,35 +543,35 @@
 
     try {
       isLoading = true;
-      console.info("Sauvegarde en cours", {
+      console.info("Saving", {
         path: filePath,
         hasData: Boolean(data)
       });
       const serialized = JSON.parse(JSON.stringify(data));
       const savedBackupPath = await invoke<string>("save_save_file", { path: filePath, data: serialized });
-      console.info("Sauvegarde réussie", { backupPath: savedBackupPath });
+      console.info("Save completed", { backupPath: savedBackupPath });
       backupPath = savedBackupPath;
       try {
-        console.info("Rechargement du fichier pour vérifier les modifications");
+        console.info("Reloading file to verify changes");
         const refreshed = await invoke<LoadResponse>("load_save_file", { path: filePath });
         data = refreshed.data;
         const workerTotal = countUnits(refreshed.data, selectedCampaign, selectedIsland, WORKER_PREFABS);
         const farmerTotal = countUnits(refreshed.data, selectedCampaign, selectedIsland, FARMER_PREFABS);
         const archerTotal = countUnits(refreshed.data, selectedCampaign, selectedIsland, ARCHER_PREFABS);
         const pikemanTotal = countUnits(refreshed.data, selectedCampaign, selectedIsland, PIKEMAN_PREFABS);
-        console.info("Rechargement terminé", {
+        console.info("Reload complete", {
           workers: workerTotal,
           farmers: farmerTotal,
           archers: archerTotal,
           pikemen: pikemanTotal
         });
       } catch (error) {
-        console.error("Impossible de recharger le fichier après sauvegarde", error);
+        console.error("Unable to reload file after saving", error);
       }
       showSuccess(t.status.saveApplied);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error("Erreur lors de la sauvegarde", error);
+      console.error("Save failed", error);
       showError(message);
     } finally {
       isLoading = false;
@@ -347,11 +583,16 @@
   }
 
   let campaigns = $derived(computeCampaignSummaries(data));
+  let challenges = $derived(computeChallengeSummaries(data));
   let islands = $derived(computeIslandCount(data, selectedCampaign));
 
   $effect(() => {
     if (selectedCampaign >= campaigns.length) {
       selectedCampaign = 0;
+    }
+
+    if (selectedChallenge >= challenges.length) {
+      selectedChallenge = 0;
     }
 
     if (selectedIsland >= islands) {
@@ -370,7 +611,7 @@
       return;
     }
 
-    const signature = `${selectedCampaign}|${selectedIsland}|${coinsPlayerIndex}`;
+    const signature = `${targetMode}|${selectedCampaign}|${selectedChallenge}|${selectedIsland}|${coinsPlayerIndex}`;
     const selectionChanged = coinsSelectionSignature !== signature;
     const dataChanged = lastCoinsData !== data;
     if (!selectionChanged && !dataChanged) {
@@ -381,6 +622,8 @@
     lastCoinsData = data;
 
     const coinsValue = getPlayerCoins(data, {
+      mode: targetMode,
+      challengeIndex: selectedChallenge,
       campaignIndex: selectedCampaign,
       islandIndex: selectedIsland,
       playerIndex: coinsPlayerIndex,
@@ -398,7 +641,7 @@
       return;
     }
 
-    const signature = `${selectedCampaign}|${selectedIsland}|${gemsPlayerIndex}`;
+    const signature = `${targetMode}|${selectedCampaign}|${selectedChallenge}|${selectedIsland}|${gemsPlayerIndex}`;
     const selectionChanged = gemsSelectionSignature !== signature;
     const dataChanged = lastGemsData !== data;
     if (!selectionChanged && !dataChanged) {
@@ -409,6 +652,8 @@
     lastGemsData = data;
 
     const gemsValue = getPlayerGems(data, {
+      mode: targetMode,
+      challengeIndex: selectedChallenge,
       campaignIndex: selectedCampaign,
       islandIndex: selectedIsland,
       playerIndex: gemsPlayerIndex,
@@ -435,18 +680,24 @@
     try {
       const current = requireData();
       const beforeCoins = getPlayerCoins(current, {
+        mode: targetMode,
+        challengeIndex: selectedChallenge,
         campaignIndex: selectedCampaign,
         islandIndex: selectedIsland,
         playerIndex: coinsPlayerIndex,
       });
-      console.info("Mise à jour des pièces demandée", {
-        campagne: selectedCampaign,
-        ile: selectedIsland,
-        joueur: coinsPlayerIndex,
-        avant: beforeCoins,
-        cible: coinsAmount,
+      console.info("Coin update requested", {
+        mode: targetMode,
+        challenge: selectedChallenge,
+        campaign: selectedCampaign,
+        island: selectedIsland,
+        player: coinsPlayerIndex,
+        before: beforeCoins,
+        target: coinsAmount,
       });
       const updated = setPlayerCoins(current, {
+        mode: targetMode,
+        challengeIndex: selectedChallenge,
         campaignIndex: selectedCampaign,
         islandIndex: selectedIsland,
         playerIndex: coinsPlayerIndex,
@@ -455,6 +706,8 @@
       data = updated;
       backupPath = null;
       const afterCoins = getPlayerCoins(updated, {
+        mode: targetMode,
+        challengeIndex: selectedChallenge,
         campaignIndex: selectedCampaign,
         islandIndex: selectedIsland,
         playerIndex: coinsPlayerIndex,
@@ -462,11 +715,13 @@
       if (typeof afterCoins === "number") {
         coinsAmount = afterCoins;
       }
-      console.info("Pièces mises à jour", {
-        campagne: selectedCampaign,
-        ile: selectedIsland,
-        joueur: coinsPlayerIndex,
-        apres: afterCoins,
+      console.info("Coins updated", {
+        mode: targetMode,
+        challenge: selectedChallenge,
+        campaign: selectedCampaign,
+        island: selectedIsland,
+        player: coinsPlayerIndex,
+        after: afterCoins,
       });
       showSuccess(t.status.coinsUpdated);
     } catch (error) {
@@ -481,18 +736,24 @@
     try {
       const current = requireData();
       const beforeGems = getPlayerGems(current, {
+        mode: targetMode,
+        challengeIndex: selectedChallenge,
         campaignIndex: selectedCampaign,
         islandIndex: selectedIsland,
         playerIndex: gemsPlayerIndex,
       });
-      console.info("Mise à jour des gemmes demandée", {
-        campagne: selectedCampaign,
-        ile: selectedIsland,
-        joueur: gemsPlayerIndex,
-        avant: beforeGems,
-        cible: gemsAmount,
+      console.info("Gem update requested", {
+        mode: targetMode,
+        challenge: selectedChallenge,
+        campaign: selectedCampaign,
+        island: selectedIsland,
+        player: gemsPlayerIndex,
+        before: beforeGems,
+        target: gemsAmount,
       });
       const updated = setPlayerGems(current, {
+        mode: targetMode,
+        challengeIndex: selectedChallenge,
         campaignIndex: selectedCampaign,
         islandIndex: selectedIsland,
         playerIndex: gemsPlayerIndex,
@@ -501,6 +762,8 @@
       data = updated;
       backupPath = null;
       const afterGems = getPlayerGems(updated, {
+        mode: targetMode,
+        challengeIndex: selectedChallenge,
         campaignIndex: selectedCampaign,
         islandIndex: selectedIsland,
         playerIndex: gemsPlayerIndex,
@@ -509,11 +772,13 @@
         gemsAmount = afterGems;
       }
 
-      console.info("Gemmes mises à jour", {
-        campagne: selectedCampaign,
-        ile: selectedIsland,
-        joueur: gemsPlayerIndex,
-        apres: afterGems,
+      console.info("Gems updated", {
+        mode: targetMode,
+        challenge: selectedChallenge,
+        campaign: selectedCampaign,
+        island: selectedIsland,
+        player: gemsPlayerIndex,
+        after: afterGems,
       });
       showSuccess(t.status.gemsUpdated);
     } catch (error) {
@@ -527,15 +792,19 @@
 
     try {
       const current = requireData();
-      const beforeArchers = countUnits(current, selectedCampaign, selectedIsland, ARCHER_PREFABS);
-      console.info("Ajout d'archers demandé", {
-        campagne: selectedCampaign,
-        ile: selectedIsland,
-        joueur: archerPlayerIndex,
-        avant: beforeArchers,
-        ajout: archerCount,
+      const beforeArchers = countUnits(current, selectedCampaign, selectedIsland, ARCHER_PREFABS, targetMode, selectedChallenge);
+      console.info("Archer addition requested", {
+        mode: targetMode,
+        challenge: selectedChallenge,
+        campaign: selectedCampaign,
+        island: selectedIsland,
+        player: archerPlayerIndex,
+        before: beforeArchers,
+        added: archerCount,
       });
       const updated = spawnArchers(current, {
+        mode: targetMode,
+        challengeIndex: selectedChallenge,
         campaignIndex: selectedCampaign,
         islandIndex: selectedIsland,
         playerIndex: archerPlayerIndex,
@@ -543,12 +812,14 @@
       });
       data = updated;
       backupPath = null;
-      const afterArchers = countUnits(updated, selectedCampaign, selectedIsland, ARCHER_PREFABS);
-      console.info("Archers ajoutés", {
-        campagne: selectedCampaign,
-        ile: selectedIsland,
-        joueur: archerPlayerIndex,
-        apres: afterArchers,
+      const afterArchers = countUnits(updated, selectedCampaign, selectedIsland, ARCHER_PREFABS, targetMode, selectedChallenge);
+      console.info("Archers added", {
+        mode: targetMode,
+        challenge: selectedChallenge,
+        campaign: selectedCampaign,
+        island: selectedIsland,
+        player: archerPlayerIndex,
+        after: afterArchers,
       });
       showSuccess(t.status.archersAdded);
     } catch (error) {
@@ -562,15 +833,19 @@
 
     try {
       const current = requireData();
-      const beforeWorkers = countUnits(current, selectedCampaign, selectedIsland, WORKER_PREFABS);
-      console.info("Ajout d'ouvriers demandé", {
-        campagne: selectedCampaign,
-        ile: selectedIsland,
-        joueur: archerPlayerIndex,
-        avant: beforeWorkers,
-        ajout: workerCount,
+      const beforeWorkers = countUnits(current, selectedCampaign, selectedIsland, WORKER_PREFABS, targetMode, selectedChallenge);
+      console.info("Worker addition requested", {
+        mode: targetMode,
+        challenge: selectedChallenge,
+        campaign: selectedCampaign,
+        island: selectedIsland,
+        player: archerPlayerIndex,
+        before: beforeWorkers,
+        added: workerCount,
       });
       const updated = spawnWorkers(current, {
+        mode: targetMode,
+        challengeIndex: selectedChallenge,
         campaignIndex: selectedCampaign,
         islandIndex: selectedIsland,
         playerIndex: archerPlayerIndex,
@@ -578,11 +853,13 @@
       });
       data = updated;
       backupPath = null;
-      const afterWorkers = countUnits(updated, selectedCampaign, selectedIsland, WORKER_PREFABS);
-      console.info("Ouvriers ajoutés", {
-        campagne: selectedCampaign,
-        ile: selectedIsland,
-        apres: afterWorkers,
+      const afterWorkers = countUnits(updated, selectedCampaign, selectedIsland, WORKER_PREFABS, targetMode, selectedChallenge);
+      console.info("Workers added", {
+        mode: targetMode,
+        challenge: selectedChallenge,
+        campaign: selectedCampaign,
+        island: selectedIsland,
+        after: afterWorkers,
       });
       showSuccess(t.status.workersAdded);
     } catch (error) {
@@ -596,15 +873,19 @@
 
     try {
       const current = requireData();
-      const beforeFarmers = countUnits(current, selectedCampaign, selectedIsland, FARMER_PREFABS);
-      console.info("Ajout de fermiers demandé", {
-        campagne: selectedCampaign,
-        ile: selectedIsland,
-        joueur: archerPlayerIndex,
-        avant: beforeFarmers,
-        ajout: farmerCount,
+      const beforeFarmers = countUnits(current, selectedCampaign, selectedIsland, FARMER_PREFABS, targetMode, selectedChallenge);
+      console.info("Farmer addition requested", {
+        mode: targetMode,
+        challenge: selectedChallenge,
+        campaign: selectedCampaign,
+        island: selectedIsland,
+        player: archerPlayerIndex,
+        before: beforeFarmers,
+        added: farmerCount,
       });
       const updated = spawnFarmers(current, {
+        mode: targetMode,
+        challengeIndex: selectedChallenge,
         campaignIndex: selectedCampaign,
         islandIndex: selectedIsland,
         playerIndex: archerPlayerIndex,
@@ -612,11 +893,13 @@
       });
       data = updated;
       backupPath = null;
-      const afterFarmers = countUnits(updated, selectedCampaign, selectedIsland, FARMER_PREFABS);
-      console.info("Fermiers ajoutés", {
-        campagne: selectedCampaign,
-        ile: selectedIsland,
-        apres: afterFarmers,
+      const afterFarmers = countUnits(updated, selectedCampaign, selectedIsland, FARMER_PREFABS, targetMode, selectedChallenge);
+      console.info("Farmers added", {
+        mode: targetMode,
+        challenge: selectedChallenge,
+        campaign: selectedCampaign,
+        island: selectedIsland,
+        after: afterFarmers,
       });
       showSuccess(t.status.farmersAdded);
     } catch (error) {
@@ -630,15 +913,19 @@
 
     try {
       const current = requireData();
-      const beforePikemen = countUnits(current, selectedCampaign, selectedIsland, PIKEMAN_PREFABS);
-      console.info("Ajout de piquiers demandé", {
-        campagne: selectedCampaign,
-        ile: selectedIsland,
-        joueur: archerPlayerIndex,
-        avant: beforePikemen,
-        ajout: pikemanCount,
+      const beforePikemen = countUnits(current, selectedCampaign, selectedIsland, PIKEMAN_PREFABS, targetMode, selectedChallenge);
+      console.info("Pikeman addition requested", {
+        mode: targetMode,
+        challenge: selectedChallenge,
+        campaign: selectedCampaign,
+        island: selectedIsland,
+        player: archerPlayerIndex,
+        before: beforePikemen,
+        added: pikemanCount,
       });
       const updated = spawnPikemen(current, {
+        mode: targetMode,
+        challengeIndex: selectedChallenge,
         campaignIndex: selectedCampaign,
         islandIndex: selectedIsland,
         playerIndex: archerPlayerIndex,
@@ -646,13 +933,58 @@
       });
       data = updated;
       backupPath = null;
-      const afterPikemen = countUnits(updated, selectedCampaign, selectedIsland, PIKEMAN_PREFABS);
-      console.info("Piquiers ajoutés", {
-        campagne: selectedCampaign,
-        ile: selectedIsland,
-        apres: afterPikemen,
+      const afterPikemen = countUnits(updated, selectedCampaign, selectedIsland, PIKEMAN_PREFABS, targetMode, selectedChallenge);
+      console.info("Pikemen added", {
+        mode: targetMode,
+        challenge: selectedChallenge,
+        campaign: selectedCampaign,
+        island: selectedIsland,
+        after: afterPikemen,
       });
       showSuccess(t.status.pikemenAdded);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      showError(message);
+    }
+  }
+
+  function handleSpawnKnights() {
+    resetStatus();
+
+    try {
+      const current = requireData();
+      const beforeKnights = countUnits(current, selectedCampaign, selectedIsland, KNIGHT_PREFABS, targetMode, selectedChallenge);
+      console.info("Knight addition requested", {
+        mode: targetMode,
+        challenge: selectedChallenge,
+        campaign: selectedCampaign,
+        island: selectedIsland,
+        before: beforeKnights,
+        added: knightCount,
+        side: knightSide,
+        withArchers: knightWithArchers
+      });
+      const updated = spawnKnights(current, {
+        mode: targetMode,
+        challengeIndex: selectedChallenge,
+        campaignIndex: selectedCampaign,
+        islandIndex: selectedIsland,
+        playerIndex: archerPlayerIndex,
+        count: knightCount,
+        side: knightSide,
+        withArchers: knightWithArchers
+      });
+      data = updated;
+      backupPath = null;
+      const afterKnights = countUnits(updated, selectedCampaign, selectedIsland, KNIGHT_PREFABS, targetMode, selectedChallenge);
+      console.info("Knights added", {
+        mode: targetMode,
+        challenge: selectedChallenge,
+        campaign: selectedCampaign,
+        island: selectedIsland,
+        after: afterKnights
+      });
+      showSuccess(t.status.knightsAdded);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       showError(message);
@@ -664,9 +996,9 @@
 
     try {
       const current = requireData();
-      console.info("Changement d'île demandé", {
-        campagne: selectedCampaign,
-        ile: selectedIsland,
+      console.info("Island change requested", {
+        campaign: selectedCampaign,
+        island: selectedIsland,
         coins: gotoCoins,
         gems: gotoGems,
         pikemen: gotoPikemen,
@@ -696,9 +1028,9 @@
 
     try {
       const current = requireData();
-      console.info("Prise de contrôle demandée", {
-        campagne: selectedCampaign,
-        ile: selectedIsland,
+      console.info("Takeover requested", {
+        campaign: selectedCampaign,
+        island: selectedIsland,
         coins: takeOverCoins,
         archers: takeOverArchers,
         workers: takeOverWorkers,
@@ -726,9 +1058,9 @@
 
     try {
       const current = requireData();
-      console.info("Destruction des portails demandée", {
-        campagne: selectedCampaign,
-        ile: selectedIsland,
+      console.info("Portal destruction requested", {
+        campaign: selectedCampaign,
+        island: selectedIsland,
       });
       const updated = destroyPortals(current, {
         campaignIndex: selectedCampaign,
@@ -748,9 +1080,9 @@
 
     try {
       const current = requireData();
-      console.info("Extermination demandée", {
-        campagne: selectedCampaign,
-        ile: selectedIsland,
+      console.info("Extermination requested", {
+        campaign: selectedCampaign,
+        island: selectedIsland,
       });
       const updated = exterminateEnemies(current, {
         campaignIndex: selectedCampaign,
@@ -765,15 +1097,43 @@
     }
   }
 
+  function handleTeleportPlayer(targetX?: number) {
+    resetStatus();
+
+    try {
+      const current = requireData();
+      const x = targetX !== undefined ? targetX : teleportTargetX;
+      console.info("Player teleport requested", {
+        campaign: selectedCampaign,
+        island: selectedIsland,
+        player: teleportPlayerIndex,
+        x,
+      });
+      const updated = teleportPlayer(current, {
+        campaignIndex: selectedCampaign,
+        islandIndex: selectedIsland,
+        playerIndex: teleportPlayerIndex,
+        x,
+      });
+      data = updated;
+      backupPath = null;
+      teleportTargetX = x;
+      showSuccess(t.status.playerTeleported);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      showError(message);
+    }
+  }
+
   function handleFormation() {
     resetStatus();
 
     try {
       const current = requireData();
-      console.info("Formation de combat demandée", {
-        campagne: selectedCampaign,
-        ile: selectedIsland,
-        joueur: formationPlayerIndex,
+      console.info("Battle formation requested", {
+        campaign: selectedCampaign,
+        island: selectedIsland,
+        player: formationPlayerIndex,
         position: formationPosition,
         archers: formationArchers,
         pikemen: formationPikemen,
@@ -795,14 +1155,48 @@
     }
   }
 
+  function handleSetCatapultBarrels(side: -1 | 1) {
+    resetStatus();
+
+    try {
+      const current = requireData();
+      const barrels = side === -1 ? leftCatapultInput : rightCatapultInput;
+      console.info("Catapult barrels update requested", {
+        campaign: selectedCampaign,
+        island: selectedIsland,
+        side,
+        barrels,
+      });
+      const updated = setCatapultOilBarrels(current, {
+        targetMode,
+        challengeIndex: selectedChallenge,
+        campaignIndex: selectedCampaign,
+        islandIndex: selectedIsland,
+        side,
+        oilBarrels: barrels,
+      });
+      data = updated;
+      backupPath = null;
+      if (side === -1) {
+        customLeftBarrels = null;
+      } else {
+        customRightBarrels = null;
+      }
+      showSuccess(t.status.catapultOilUpdated);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      showError(message);
+    }
+  }
+
   function handlePimp() {
     resetStatus();
 
     try {
       const current = requireData();
       console.info("Pimp my island", {
-        campagne: selectedCampaign,
-        ile: selectedIsland,
+        campaign: selectedCampaign,
+        island: selectedIsland,
         coins: pimpCoins,
         spawn: pimpSpawnCount,
       });
@@ -826,10 +1220,10 @@
 
     try {
       const current = requireData();
-      console.info("Marquage des arbres", {
-        campagne: selectedCampaign,
-        ile: selectedIsland,
-        joueur: treesPlayerIndex,
+      console.info("Tree marking", {
+        campaign: selectedCampaign,
+        island: selectedIsland,
+        player: treesPlayerIndex,
         coins: treesCoins,
       });
       const updated = markTreesForRemoval(current, {
@@ -841,6 +1235,187 @@
       data = updated;
       backupPath = null;
       showSuccess(t.status.treesMarked);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      showError(message);
+    }
+  }
+
+  function handleUpgradeSingleWall(wallId: string, targetLevel: number, addHorn: boolean = false) {
+    resetStatus();
+    try {
+      const current = requireData();
+      const updated = upgradeSpecificWall(current, {
+        targetMode,
+        challengeIndex: selectedChallenge,
+        campaignIndex: selectedCampaign,
+        islandIndex: selectedIsland,
+        wallId,
+        targetLevel,
+        addHorn,
+      });
+      data = updated;
+      showSuccess(t.status.wallUpdated);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      showError(message);
+    }
+  }
+
+  function handleBatchUpgradeWalls(mode: 'all' | 'built_only' | 'mounds_only', targetLevel: number = 5, addHorn: boolean = false) {
+    resetStatus();
+    try {
+      const current = requireData();
+      const updated = batchUpgradeWalls(current, {
+        targetMode,
+        challengeIndex: selectedChallenge,
+        campaignIndex: selectedCampaign,
+        islandIndex: selectedIsland,
+        mode,
+        targetLevel,
+        addHorn,
+      });
+      data = updated;
+      showSuccess(t.status.wallsBatchUpdated);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      showError(message);
+    }
+  }
+
+  function handleUpgradeCastle(targetLevel: number = 7) {
+    resetStatus();
+    try {
+      const current = requireData();
+      const updated = upgradeIslandCastle(current, {
+        targetMode,
+        challengeIndex: selectedChallenge,
+        campaignIndex: selectedCampaign,
+        islandIndex: selectedIsland,
+        targetLevel,
+      });
+      data = updated;
+      showSuccess(t.status.castleUpdated);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      showError(message);
+    }
+  }
+
+  function handleUpgradeSingleTower(towerId: string, targetType: TowerType) {
+    resetStatus();
+    try {
+      const current = requireData();
+      const updated = upgradeSpecificTower(current, {
+        targetMode,
+        challengeIndex: selectedChallenge,
+        campaignIndex: selectedCampaign,
+        islandIndex: selectedIsland,
+        towerId,
+        targetType,
+      });
+      data = updated;
+      showSuccess(t.status.towerUpdated);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      showError(message);
+    }
+  }
+
+  function handleBatchUpgradeTowers(mode: 'all' | 'built_only' | 'mounds_only', targetType: TowerType) {
+    resetStatus();
+    try {
+      const current = requireData();
+      const updated = batchUpgradeTowers(current, {
+        targetMode,
+        challengeIndex: selectedChallenge,
+        campaignIndex: selectedCampaign,
+        islandIndex: selectedIsland,
+        mode,
+        targetType,
+      });
+      data = updated;
+      showSuccess(t.status.towersBatchUpdated);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      showError(message);
+    }
+  }
+
+  function handleToggleTreeMark(treeId: string, currentMarked: boolean) {
+    resetStatus();
+    try {
+      const current = requireData();
+      const updated = setTreeMark(current, {
+        targetMode,
+        challengeIndex: selectedChallenge,
+        campaignIndex: selectedCampaign,
+        islandIndex: selectedIsland,
+        treeId,
+        marked: !currentMarked,
+      });
+      data = updated;
+      showSuccess(t.status.treeMarkUpdated);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      showError(message);
+    }
+  }
+
+  function handleBatchTreeMark(marked: boolean) {
+    resetStatus();
+    try {
+      const current = requireData();
+      const minVal = Math.min(treeRangeMin, treeRangeMax);
+      const maxVal = Math.max(treeRangeMin, treeRangeMax);
+      const updated = setTreeMark(current, {
+        targetMode,
+        challengeIndex: selectedChallenge,
+        campaignIndex: selectedCampaign,
+        islandIndex: selectedIsland,
+        xMin: minVal,
+        xMax: maxVal,
+        marked,
+      });
+      data = updated;
+      showSuccess(t.status.treeMarkUpdated);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      showError(message);
+    }
+  }
+
+  function handleSetDeityStatus(deityIndex: number, status: number) {
+    resetStatus();
+    try {
+      const current = requireData();
+      const updated = setDeityStatus(current, {
+        targetMode,
+        challengeIndex: selectedChallenge,
+        campaignIndex: selectedCampaign,
+        deityIndex,
+        status,
+      });
+      data = updated;
+      showSuccess(t.status.deityUpdated);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      showError(message);
+    }
+  }
+
+  function handleUnlockAllDeities(status: number = 2) {
+    resetStatus();
+    try {
+      const current = requireData();
+      const updated = unlockAllDeities(current, {
+        targetMode,
+        challengeIndex: selectedChallenge,
+        campaignIndex: selectedCampaign,
+        status,
+      });
+      data = updated;
+      showSuccess(t.status.deitiesAllUpdated);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       showError(message);
@@ -861,15 +1436,17 @@
 
     try {
       const current = requireData();
-      console.info("Recrutement combiné", {
-        campagne: selectedCampaign,
-        ile: selectedIsland,
-        joueur: archerPlayerIndex,
+      console.info("Combined recruitment", {
+        campaign: selectedCampaign,
+        island: selectedIsland,
+        player: archerPlayerIndex,
         archers,
         workers,
         pikemen,
       });
       const updated = spawnUnits(current, {
+        mode: targetMode,
+        challengeIndex: selectedChallenge,
         campaignIndex: selectedCampaign,
         islandIndex: selectedIsland,
         playerIndex: archerPlayerIndex,
@@ -885,10 +1462,361 @@
       showError(message);
     }
   }
+
+  async function openAssetEditor(selectFolder = false) {
+    assetMode = true;
+    assetBusy = true;
+    assetStatus = null;
+    assetError = null;
+    try {
+      const response = selectFolder
+        ? await invoke<AssetResponse>("select_game_data_directory")
+        : await invoke<AssetResponse>("load_game_assets", { dataDirectory: assetDirectory });
+      if (assetDirectory !== response.dataDirectory) warhorseColliderBackup = null;
+      assetDirectory = response.dataDirectory;
+      assetSettings = response.settings;
+      assetStatus = "Loaded the current values from the game.";
+      coinVisualAvailable = false;
+      coinVisualStatus = null;
+      coinVisualError = null;
+      try {
+        const coins = await invoke<{limit: number | null}>("load_coin_visual_limit", {dataDirectory: response.dataDirectory});
+        coinVisualCurrent = coins.limit;
+        coinVisualLimit = coins.limit ?? 30;
+        coinVisualAvailable = true;
+      } catch (error) { coinVisualError = String(error); }
+      campAvailable = false;
+      campStatus = null;
+      campError = null;
+      try {
+        const camp = await invoke<{enabled: boolean; needsUpgrade: boolean}>("load_camp_preservation", {dataDirectory: response.dataDirectory});
+        campEnabled = camp.enabled;
+        campNeedsUpgrade = camp.needsUpgrade;
+        campAvailable = true;
+      } catch (error) { campError = String(error); }
+      warhorseColliderLimit = null;
+      warhorseColliderError = null;
+      warhorseColliderStatus = null;
+      try {
+        const collider = await invoke<ColliderLimitResponse>("load_warhorse_collider_limit", {
+          dataDirectory: response.dataDirectory
+        });
+        warhorseColliderLimit = collider.limit;
+      } catch (error) {
+        warhorseColliderError = String(error);
+      }
+    } catch (error) {
+      assetError = String(error);
+    } finally {
+      assetBusy = false;
+    }
+  }
+
+  async function applyCoinVisualLimit(disable = false) {
+    if (!assetDirectory || !coinVisualAvailable || assetBusy) return;
+    coinVisualError = null;
+    coinVisualStatus = null;
+    if (!disable && (!Number.isInteger(coinVisualLimit) || coinVisualLimit < 1 || coinVisualLimit > 65535)) {
+      coinVisualError = "Enter a positive whole number. ARM64 immediate maximum: 65535.";
+      return;
+    }
+    assetBusy = true;
+    try {
+      const response = await invoke<{limit: number | null; backup: string | null}>("apply_coin_visual_limit", {
+        dataDirectory: assetDirectory, limit: disable ? null : coinVisualLimit
+      });
+      coinVisualCurrent = response.limit;
+      coinVisualStatus = (response.limit === null ? "Original coin display restored." : `Coin display limited to ${response.limit}.`) +
+        (response.backup ? ` Backup: ${response.backup}` : " No changes needed.");
+    } catch (error) { coinVisualError = String(error); }
+    finally { assetBusy = false; }
+  }
+
+  async function applyCampPreservation(enabled: boolean) {
+    if (!assetDirectory || !campAvailable || assetBusy) return;
+    campError = null;
+    campStatus = null;
+    assetBusy = true;
+    try {
+      const response = await invoke<{enabled: boolean; backup: string | null}>("apply_camp_preservation", {
+        dataDirectory: assetDirectory, enabled
+      });
+      campEnabled = response.enabled;
+      campNeedsUpgrade = false;
+      campStatus = (response.enabled ? "Vagrant camps are preserved when the forest disappears." : "Original camp removal restored.") +
+        (response.backup ? ` Backup: ${response.backup}` : " No changes needed.");
+    } catch (error) { campError = String(error); }
+    finally { assetBusy = false; }
+  }
+
+  async function applyWarhorseColliderLimit() {
+    if (!assetDirectory || warhorseColliderLimit === null) return;
+    warhorseColliderError = null;
+    warhorseColliderStatus = null;
+    if (!Number.isInteger(warhorseColliderLimit) || warhorseColliderLimit < 1 || warhorseColliderLimit > 65535) {
+      warhorseColliderError = "Enter a positive whole number. ARM64 immediate maximum: 65535.";
+      return;
+    }
+    assetBusy = true;
+    try {
+      const response = await invoke<ColliderLimitResponse>("apply_warhorse_collider_limit", {
+        dataDirectory: assetDirectory,
+        limit: warhorseColliderLimit
+      });
+      warhorseColliderLimit = response.limit;
+      warhorseColliderBackup = response.backup;
+      warhorseColliderStatus = response.backup
+        ? `GameAssembly.dylib updated, signed, and verified. Backup: ${response.backup}`
+        : "Collider limit is already set to this value.";
+    } catch (error) {
+      warhorseColliderError = String(error);
+    } finally {
+      assetBusy = false;
+    }
+  }
+
+  async function restoreWarhorseColliderLimit() {
+    if (!assetDirectory || !warhorseColliderBackup) return;
+    warhorseColliderError = null;
+    warhorseColliderStatus = null;
+    assetBusy = true;
+    try {
+      const response = await invoke<ColliderLimitResponse>("restore_warhorse_collider_limit", {
+        dataDirectory: assetDirectory,
+        backup: warhorseColliderBackup
+      });
+      warhorseColliderLimit = response.limit;
+      warhorseColliderBackup = response.backup;
+      warhorseColliderStatus = `Previous collider limit restored (${response.limit}).`;
+    } catch (error) {
+      warhorseColliderError = String(error);
+    } finally {
+      assetBusy = false;
+    }
+  }
+
+  async function applyAssetChanges() {
+    if (!assetDirectory || !assetSettings) return;
+    assetBusy = true;
+    assetStatus = null;
+    assetError = null;
+    try {
+      const response = await invoke<AssetApplyResponse>("apply_game_assets", {
+        dataDirectory: assetDirectory,
+        settings: assetSettings,
+        resetSaveWalls: resetSaveWalls
+      });
+      assetSettings = response.settings;
+      assetBackups = [response.resourcesBackup, response.sharedAssetsBackup];
+      if (typeof response.saveClearedWalls === 'number' && response.saveClearedWalls > 0) {
+        assetStatus = `Changes applied to assets. Also cleaned Damageable overrides on ${response.saveClearedWalls} walls in the save file.`;
+      } else {
+        assetStatus = "Changes applied and verified in both resources.assets and sharedassets0.assets.";
+      }
+    } catch (error) {
+      assetError = String(error);
+    } finally {
+      assetBusy = false;
+    }
+  }
+
+  async function restoreAssetChanges() {
+    if (!assetDirectory || assetBackups.length !== 2) return;
+    assetBusy = true;
+    assetStatus = null;
+    assetError = null;
+    try {
+      const response = await invoke<AssetResponse>("restore_game_assets", {
+        dataDirectory: assetDirectory,
+        resourcesBackup: assetBackups[0],
+        sharedAssetsBackup: assetBackups[1]
+      });
+      assetSettings = response.settings;
+      assetBackups = [];
+      assetStatus = "Backups restored. A safety backup of the previous state was also created.";
+    } catch (error) {
+      assetError = String(error);
+    } finally {
+      assetBusy = false;
+    }
+  }
+
+  function updateAssetNumber(key: keyof AssetSettings, event: Event) {
+    if (!assetSettings) return;
+    const value = Number((event.currentTarget as HTMLInputElement).value);
+    assetSettings = { ...assetSettings, [key]: value };
+  }
 </script>
 
 <main>
-  {#if !data}
+  {#if assetMode}
+    <div class="asset-editor-shell">
+      <header class="asset-header">
+        <div>
+          <h1>Game Assets</h1>
+          <p class="muted">Edit mounts, units, and bag items directly in Kingdom Two Crowns.</p>
+        </div>
+        <div class="header-actions">
+          <button type="button" onclick={() => { assetMode = false; assetStatus = null; assetError = null; }}>Back</button>
+          <button type="button" onclick={() => openAssetEditor(true)} disabled={assetBusy}>Select Data Folder</button>
+          <button type="button" onclick={() => openAssetEditor(false)} disabled={assetBusy}>Reload</button>
+          <button type="button" onclick={restoreAssetChanges} disabled={assetBusy || assetBackups.length !== 2}>Restore</button>
+          <button class="primary" type="button" onclick={applyAssetChanges} disabled={assetBusy || !assetSettings}>Apply</button>
+        </div>
+      </header>
+
+      <section class="asset-content">
+        {#if assetDirectory}<p class="file-path">Data: {assetDirectory}</p>{/if}
+        {#if assetStatus}<p class="status success">{assetStatus}</p>{/if}
+        {#if assetError}<p class="status error">{assetError}</p>{/if}
+        {#if assetBusy}<p class="status info">Processing…</p>{/if}
+
+        {#if assetSettings}
+          <div class="asset-grid">
+            <section class="card asset-card">
+              <h2>Griffin</h2>
+              <label>Run speed<input type="number" step="0.1" value={assetSettings.griffinRunSpeed} oninput={(e) => updateAssetNumber('griffinRunSpeed', e)} /></label>
+              <label>Forest multiplier<input type="number" step="0.1" value={assetSettings.griffinForestMultiplier} oninput={(e) => updateAssetNumber('griffinForestMultiplier', e)} /></label>
+              <label>Run stamina rate<input type="number" step="0.01" value={assetSettings.griffinRunStaminaRate} oninput={(e) => updateAssetNumber('griffinRunStaminaRate', e)} /></label>
+              <label>Skill stamina cost<input type="number" step="0.01" value={assetSettings.griffinSkillStaminaCost} oninput={(e) => updateAssetNumber('griffinSkillStaminaCost', e)} /></label>
+              <label>Push range width<input type="number" min="0" step="0.1" value={assetSettings.griffinPushWidth} oninput={(e) => updateAssetNumber('griffinPushWidth', e)} /></label>
+              <label>Push range height<input type="number" min="0" step="0.1" value={assetSettings.griffinPushHeight} oninput={(e) => updateAssetNumber('griffinPushHeight', e)} /></label>
+            </section>
+
+            <section class="card asset-card">
+              <h2>Regular Horse</h2>
+              <label>Run speed<input type="number" step="0.1" value={assetSettings.horseRunSpeed} oninput={(e) => updateAssetNumber('horseRunSpeed', e)} /></label>
+              <label>Run stamina rate<input type="number" step="0.01" value={assetSettings.horseRunStaminaRate} oninput={(e) => updateAssetNumber('horseRunStaminaRate', e)} /></label>
+            </section>
+
+            <section class="card asset-card">
+              <h2>Lizard</h2>
+              <label>Run speed<input type="number" step="0.1" value={assetSettings.lizardRunSpeed} oninput={(e) => updateAssetNumber('lizardRunSpeed', e)} /></label>
+              <label>Run stamina rate<input type="number" step="0.01" value={assetSettings.lizardRunStaminaRate} oninput={(e) => updateAssetNumber('lizardRunStaminaRate', e)} /></label>
+              <label>Skill stamina cost<input type="number" min="0" step="0.01" value={assetSettings.lizardSkillStaminaCost} oninput={(e) => updateAssetNumber('lizardSkillStaminaCost', e)} /></label>
+            </section>
+
+            <section class="card asset-card">
+              <h2>Warhorse</h2>
+              <label>Run speed<input type="number" step="0.1" value={assetSettings.warhorseRunSpeed} oninput={(e) => updateAssetNumber('warhorseRunSpeed', e)} /></label>
+              <label>Run stamina rate<input type="number" step="0.01" value={assetSettings.warhorseRunStaminaRate} oninput={(e) => updateAssetNumber('warhorseRunStaminaRate', e)} /></label>
+              <label>Skill stamina cost<input type="number" step="0.01" value={assetSettings.warhorseSkillStaminaCost} oninput={(e) => updateAssetNumber('warhorseSkillStaminaCost', e)} /></label>
+              <label>Skill cooldown (seconds)<input type="number" step="0.1" value={assetSettings.warhorseCooldown} oninput={(e) => updateAssetNumber('warhorseCooldown', e)} /></label>
+              <label>Buff duration (seconds)<input type="number" min="0" max="1000000" step="0.1" value={assetSettings.warhorseBuffDuration} oninput={(e) => updateAssetNumber('warhorseBuffDuration', e)} /></label>
+              <label>Buff range<input type="number" step="0.1" value={assetSettings.warhorseBuffRange} oninput={(e) => updateAssetNumber('warhorseBuffRange', e)} /></label>
+              <p class="muted">Skill stamina cost and buff range also apply to Warhorse Plague.</p>
+              {#if warhorseColliderLimit !== null}
+                <label>Collider scan limit<input type="number" min="1" max="65535" step="1" value={warhorseColliderLimit} oninput={(e) => warhorseColliderLimit = Number((e.currentTarget as HTMLInputElement).value)} /></label>
+                <button type="button" onclick={applyWarhorseColliderLimit} disabled={assetBusy}>Apply collider limit</button>
+                <button type="button" onclick={restoreWarhorseColliderLimit} disabled={assetBusy || !warhorseColliderBackup}>Restore collider limit</button>
+                <p class="muted">Separate from Apply above. Patches and re-signs GameAssembly.dylib on Apple Silicon Macs; close the game first. This limits colliders scanned, not the exact number of soldiers buffed.</p>
+                {#if warhorseColliderStatus}<p class="status success">{warhorseColliderStatus}</p>{/if}
+              {:else}
+                <p class="muted">Collider scan limit is unavailable for this game build.</p>
+              {/if}
+              {#if warhorseColliderError}<p class="status error">{warhorseColliderError}</p>{/if}
+            </section>
+
+            <section class="card asset-card">
+              <h2>Coin bag display</h2>
+              <p class="muted">Current: {coinVisualCurrent === null ? 'Original display (no visual cap)' : `${coinVisualCurrent} coin objects maximum`}</p>
+              <label>Maximum visible coins<input type="number" min="1" max="65535" step="1" bind:value={coinVisualLimit} /></label>
+              <button type="button" onclick={() => applyCoinVisualLimit()} disabled={assetBusy || !coinVisualAvailable}>Apply coin display limit</button>
+              <button type="button" onclick={() => applyCoinVisualLimit(true)} disabled={assetBusy || !coinVisualAvailable || coinVisualCurrent === null}>Restore original coin display</button>
+              <p class="muted">Separate from asset Apply. Patches and re-signs the selected game's GameAssembly.dylib on supported Apple Silicon builds. Close the game first. Wallet balance and gems are unchanged. Ground coins are not capped. Backups are created automatically.</p>
+              {#if coinVisualStatus}<p class="status success">{coinVisualStatus}</p>{/if}
+              {#if coinVisualError}<p class="status error">{coinVisualError}</p>{/if}
+            </section>
+
+            <section class="card asset-card">
+              <h2>Vagrant camps</h2>
+              <p class="muted">Current: {!campAvailable ? 'Unavailable for this game build' : campNeedsUpgrade ? 'Old patch — upgrade required to detach camps from the forest' : campEnabled ? 'Preserved and detached after deforestation' : 'Original camp removal'}</p>
+              <button type="button" onclick={() => applyCampPreservation(true)} disabled={assetBusy || !campAvailable || (campEnabled && !campNeedsUpgrade)}>{campNeedsUpgrade ? 'Upgrade camp preservation' : 'Preserve vagrant camps'}</button>
+              <button type="button" onclick={() => applyCampPreservation(false)} disabled={assetBusy || !campAvailable || !campEnabled}>Restore camp removal</button>
+              <p class="muted">Separate from asset Apply. Patches and re-signs GameAssembly.dylib on supported Apple Silicon builds; close the game first. Forest boundaries still shrink normally. Restore keeps other patches. Backups are automatic. Multiplayer is unverified.</p>
+              {#if campStatus}<p class="status success">{campStatus}</p>{/if}
+              {#if campError}<p class="status error">{campError}</p>{/if}
+            </section>
+
+            <section class="card asset-card">
+              <h2>Warhorse Plague</h2>
+              <label>Run speed<input type="number" min="0" step="0.1" value={assetSettings.warhorsePlagueRunSpeed} oninput={(e) => updateAssetNumber('warhorsePlagueRunSpeed', e)} /></label>
+              <label>Run stamina rate<input type="number" step="0.01" value={assetSettings.warhorsePlagueRunStaminaRate} oninput={(e) => updateAssetNumber('warhorsePlagueRunStaminaRate', e)} /></label>
+              <label>Skill cooldown (seconds)<input type="number" step="0.1" value={assetSettings.warhorsePlagueCooldown} oninput={(e) => updateAssetNumber('warhorsePlagueCooldown', e)} /></label>
+              <p class="muted">Applied to Warhorse Plague P1 and P2 only.</p>
+            </section>
+
+            <section class="card asset-card">
+              <h2>Archer</h2>
+              <label>Walk speed<input type="number" min="0" step="0.05" value={assetSettings.archerWalkSpeed} oninput={(e) => updateAssetNumber('archerWalkSpeed', e)} /></label>
+              <label>Run speed<input type="number" min="0" step="0.05" value={assetSettings.archerRunSpeed} oninput={(e) => updateAssetNumber('archerRunSpeed', e)} /></label>
+              <label>Shoot preparation (seconds)<input type="number" min="0" step="0.05" value={assetSettings.archerShootPrepTime} oninput={(e) => updateAssetNumber('archerShootPrepTime', e)} /></label>
+              <label>Normal cooldown (seconds)<input type="number" min="0" step="0.05" value={assetSettings.archerShootCooldownTime} oninput={(e) => updateAssetNumber('archerShootCooldownTime', e)} /></label>
+              <label>Knight squad cooldown (seconds)<input type="number" min="0" step="0.05" value={assetSettings.archerShootCooldownWithKnightTime} oninput={(e) => updateAssetNumber('archerShootCooldownWithKnightTime', e)} /></label>
+              <label>Normal interval minimum (seconds)<input type="number" min="0" step="0.05" value={assetSettings.archerIntervalMin} oninput={(e) => updateAssetNumber('archerIntervalMin', e)} /></label>
+              <label>Normal interval maximum (seconds)<input type="number" min="0" step="0.05" value={assetSettings.archerIntervalMax} oninput={(e) => updateAssetNumber('archerIntervalMax', e)} /></label>
+              <label>Formation interval minimum (seconds)<input type="number" min="0" step="0.05" value={assetSettings.archerFormationIntervalMin} oninput={(e) => updateAssetNumber('archerFormationIntervalMin', e)} /></label>
+              <label>Formation interval maximum (seconds)<input type="number" min="0" step="0.05" value={assetSettings.archerFormationIntervalMax} oninput={(e) => updateAssetNumber('archerFormationIntervalMax', e)} /></label>
+              <p class="muted">Applied to regular, Norse Lands, and Knight squad archers.</p>
+            </section>
+
+            <section class="card asset-card">
+              <h2>Builder</h2>
+              <label>Walk speed<input type="number" min="0" step="0.05" value={assetSettings.builderWalkSpeed} oninput={(e) => updateAssetNumber('builderWalkSpeed', e)} /></label>
+              <label>Run speed<input type="number" min="0" step="0.05" value={assetSettings.builderRunSpeed} oninput={(e) => updateAssetNumber('builderRunSpeed', e)} /></label>
+              <label>Work time (seconds)<input type="number" min="0" step="0.05" value={assetSettings.builderWorkTime} oninput={(e) => updateAssetNumber('builderWorkTime', e)} /></label>
+              <p class="muted">Applied to regular and Norse Lands builders. Lower work time means faster building and chopping.</p>
+            </section>
+
+            <section class="card asset-card">
+              <h2>Player Wallet</h2>
+              <label>Total capacity<input type="number" min="1" max="1000000" step="1" value={assetSettings.playerWalletCapacity} oninput={(e) => updateAssetNumber('playerWalletCapacity', e)} /></label>
+              <p class="muted">Edits Wallet.TotalCapacity on the Player prefab in resources.assets. Current save and runtime state may affect when the change takes effect.</p>
+            </section>
+
+            <section class="card asset-card">
+              <h2>Knight Wallet</h2>
+              <label>Coin drop probability (0–1)<input type="number" min="0" max="1" step="0.05" value={assetSettings.knightCoinDropProbability} oninput={(e) => updateAssetNumber('knightCoinDropProbability', e)} /></label>
+              <p class="muted">Character.coinDropProbability: 0 means no coin loss through this damage path; 0.4 means 40% per coin-drop check. This is not full invulnerability.</p>
+              <label>Coin capacity<input type="number" min="1" max="1000000" step="1" value={assetSettings.knightWalletCapacity} oninput={(e) => updateAssetNumber('knightWalletCapacity', e)} /></label>
+              <label>Pay taxes above<input type="number" min="0" max="1000000" step="1" value={assetSettings.knightWalletPayTaxesAbove} oninput={(e) => updateAssetNumber('knightWalletPayTaxesAbove', e)} /></label>
+              <p class="muted">Applied to regular, Norse Lands, and Greece Knights. Squires are unchanged.</p>
+            </section>
+
+            <section class="card asset-card">
+              <h2>Iron Wall (Wall5)</h2>
+              <label>Base HP — regular, Greece, Bamboo<input type="number" min="1" max="1000000" step="1" value={assetSettings.wall5StandardHitPoints} oninput={(e) => updateAssetNumber('wall5StandardHitPoints', e)} /></label>
+              <label>Base HP — Norse Lands<input type="number" min="1" max="1000000" step="1" value={assetSettings.wall5NorselandsHitPoints} oninput={(e) => updateAssetNumber('wall5NorselandsHitPoints', e)} /></label>
+              <label class="asset-checkbox-label">
+                <input type="checkbox" bind:checked={resetSaveWalls} />
+                <span>Reset all existing walls in save (removes Damageable overrides so all walls use this new HP)</span>
+              </label>
+              <p class="muted">Applies to normal and horn variants. Wall Statue multipliers are unchanged.</p>
+            </section>
+
+            <section class="card asset-card">
+              <h2>Bag</h2>
+              <label>Coin and gem scale<input type="number" step="0.05" value={assetSettings.bagScale} oninput={(e) => updateAssetNumber('bagScale', e)} /></label>
+              <p class="muted">This value is applied to coins, gems, and biome variants.</p>
+            </section>
+          </div>
+          <section class="card safety-card">
+            <h3>Safety</h3>
+            <p>The app writes only when both files match the verified game profile. Two backups are created before every change.</p>
+            {#if assetBackups.length}
+              <ul>{#each assetBackups as path}<li><code>{path}</code></li>{/each}</ul>
+            {/if}
+          </section>
+        {:else if !assetBusy}
+          <section class="card empty-assets">
+            <h2>Assets not loaded</h2>
+            <p>Select <code>KingdomTwoCrowns.app/Contents/Resources/Data</code> if the game is not installed in the default Steam location.</p>
+            <button class="primary" type="button" onclick={() => openAssetEditor(true)}>Select Data Folder</button>
+          </section>
+        {/if}
+      </section>
+    </div>
+  {:else if !data}
     <div class="welcome">
       <div class="welcome-content">
         <h1>{t.welcome.title}</h1>
@@ -930,6 +1858,9 @@
               </svg>
               {t.welcome.openFile}
             {/if}
+          </button>
+          <button class="large" onclick={() => openAssetEditor(false)} disabled={assetBusy}>
+            Edit Game Assets
           </button>
         </div>
 
@@ -999,31 +1930,69 @@
           <p class="muted">{t.context.description}</p>
           <div class="form-row wrap">
             <label>
-              {t.context.campaign}
+              {t.context.mode}
               <select
-                value={selectedCampaign}
-                onchange={(event) => (selectedCampaign = Number((event.currentTarget as HTMLSelectElement).value))}
+                value={targetMode}
+                onchange={(event) => {
+                  targetMode = (event.currentTarget as HTMLSelectElement).value as "campaign" | "challenge";
+                  if (targetMode === "challenge" && activeTab !== "resources" && activeTab !== "recruitment" && activeTab !== "inspector") {
+                    activeTab = "resources";
+                  }
+                }}
               >
-                {#each campaigns as campaign, index}
-                  <option value={index}>{campaign.label}</option>
-                {/each}
+                <option value="campaign">{t.context.modeCampaign}</option>
+                <option value="challenge">{t.context.modeChallenge}</option>
               </select>
             </label>
-            <label>
-              {t.context.island}
-              <select
-                value={selectedIsland}
-                onchange={(event) => (selectedIsland = Number((event.currentTarget as HTMLSelectElement).value))}
-              >
-                {#each Array.from({ length: Math.max(0, islands) }) as _, index}
-                  <option value={index}>{t.context.island} {index + 1}</option>
-                {/each}
-              </select>
-            </label>
+
+            {#if targetMode === "campaign"}
+              <label>
+                {t.context.campaign}
+                <select
+                  value={selectedCampaign}
+                  onchange={(event) => (selectedCampaign = Number((event.currentTarget as HTMLSelectElement).value))}
+                >
+                  {#each campaigns as campaign, index}
+                    <option value={index}>{campaign.label}</option>
+                  {/each}
+                </select>
+              </label>
+              <label>
+                {t.context.island}
+                <select
+                  value={selectedIsland}
+                  onchange={(event) => (selectedIsland = Number((event.currentTarget as HTMLSelectElement).value))}
+                >
+                  {#each Array.from({ length: Math.max(0, islands) }) as _, index}
+                    <option value={index}>{t.context.island} {index + 1}</option>
+                  {/each}
+                </select>
+              </label>
+            {:else}
+              <label>
+                {t.context.challenge}
+                <select
+                  value={selectedChallenge}
+                  onchange={(event) => (selectedChallenge = Number((event.currentTarget as HTMLSelectElement).value))}
+                >
+                  {#each challenges as challenge, index}
+                    <option value={index}>{challenge.label}</option>
+                  {/each}
+                </select>
+              </label>
+            {/if}
           </div>
         </section>
 
         <div class="tabs">
+          <button 
+            type="button"
+            class="tab"
+            class:active={activeTab === 'inspector'}
+            onclick={() => activeTab = 'inspector'}
+          >
+            🗺️ {t.tabs.inspector}
+          </button>
           <button 
             type="button"
             class="tab"
@@ -1032,14 +2001,16 @@
           >
             {t.tabs.resources}
           </button>
-          <button 
-            type="button"
-            class="tab"
-            class:active={activeTab === 'navigation'}
-            onclick={() => activeTab = 'navigation'}
-          >
-            {t.tabs.navigation}
-          </button>
+          {#if targetMode === "campaign"}
+            <button 
+              type="button"
+              class="tab"
+              class:active={activeTab === 'navigation'}
+              onclick={() => activeTab = 'navigation'}
+            >
+              {t.tabs.navigation}
+            </button>
+          {/if}
           <button 
             type="button"
             class="tab"
@@ -1048,14 +2019,16 @@
           >
             {t.tabs.combat}
           </button>
-          <button 
-            type="button"
-            class="tab"
-            class:active={activeTab === 'construction'}
-            onclick={() => activeTab = 'construction'}
-          >
-            {t.tabs.construction}
-          </button>
+          {#if targetMode === "campaign"}
+            <button 
+              type="button"
+              class="tab"
+              class:active={activeTab === 'construction'}
+              onclick={() => activeTab = 'construction'}
+            >
+              {t.tabs.construction}
+            </button>
+          {/if}
           <button 
             type="button"
             class="tab"
@@ -1066,16 +2039,737 @@
           </button>
         </div>
 
+        {#if activeTab === 'inspector'}
+        <div class="tab-content">
+          {#if islandOverview}
+            <!-- Castle & Overview Summary Card -->
+            <section class="card">
+              <div class="card-header-flex">
+                <h3>🏰 {t.inspector.castleInfo}</h3>
+                <div class="batch-actions">
+                  <button
+                    type="button"
+                    class="btn-sm"
+                    disabled={islandOverview.castleLevel >= 4}
+                    onclick={() => handleUpgradeCastle(4)}
+                    title="Stone Castle (Level 4)"
+                  >
+                    🪨 {t.inspector.upgradeCastleStone}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn-sm gold"
+                    disabled={islandOverview.castleLevel >= 7}
+                    onclick={() => handleUpgradeCastle(7)}
+                    title="Iron Castle (Level 7)"
+                  >
+                    ⚡ {t.inspector.upgradeCastleIron}
+                  </button>
+                </div>
+              </div>
+              <div class="overview-grid">
+                <div class="overview-item highlight">
+                  <span class="overview-label">{t.inspector.castlePosition}</span>
+                  <span class="overview-value text-gold">X = {islandOverview.castleX}</span>
+                  <span class="overview-sub">{islandOverview.castleName} (Level {islandOverview.castleLevel})</span>
+                </div>
+                {#if islandOverview.players && islandOverview.players.length > 0}
+                  {#each islandOverview.players as player}
+                    <div class="overview-item">
+                      <span class="overview-label">👑 {player.name} Position</span>
+                      <span class="overview-value" style="color: #64b5f6;">X = {player.x}</span>
+                      <span class="overview-sub">Y = {player.y} (Dist: {Math.round(Math.abs(player.x - islandOverview.castleX) * 100) / 100}m)</span>
+                    </div>
+                  {/each}
+                {/if}
+                <div class="overview-item">
+                  <span class="overview-label">{t.inspector.totalWalls}</span>
+                  <span class="overview-value">{islandOverview.walls.length}</span>
+                  <span class="overview-sub">
+                    {islandOverview.walls.filter(w => w.level > 0).length} built / {islandOverview.walls.filter(w => w.level === 0).length} mounds
+                  </span>
+                </div>
+                <div class="overview-item">
+                  <span class="overview-label">{t.inspector.totalTrees}</span>
+                  <span class="overview-value">{islandOverview.trees.length}</span>
+                  <span class="overview-sub">
+                    {islandOverview.trees.filter(tr => tr.marked).length} {t.inspector.markedToCut}
+                  </span>
+                </div>
+              </div>
+
+              {#if islandOverview.specialPoints.length > 0}
+                <div class="special-points-bar">
+                  <span class="special-points-title">📍 {t.inspector.specialPoints}:</span>
+                  <div class="special-points-list">
+                    {#each islandOverview.specialPoints as pt}
+                      <span class="special-badge {pt.type}">
+                        {#if pt.type === 'beggar_camp'}🏕️{:else if pt.type === 'portal'}🌀{:else if pt.type === 'statue'}🗿{:else if pt.type === 'mine'}⛏️{:else if pt.type === 'wreck'}⚓{:else if pt.type === 'boat'}⛵{:else}📍{/if}
+                        {pt.name} (X = {pt.x})
+                      </span>
+                    {/each}
+                  </div>
+                </div>
+              {/if}
+            </section>
+
+            <!-- Deities & Shrines Card -->
+            <section class="card">
+              <div class="card-header-flex">
+                <h3>⛩️ {t.inspector.deitiesTitle}</h3>
+                <div class="batch-actions">
+                  <button type="button" class="btn-sm gold" onclick={() => handleUnlockAllDeities(2)}>
+                    {t.inspector.activateAllDeities}
+                  </button>
+                  <button type="button" class="btn-sm secondary" onclick={() => handleUnlockAllDeities(1)}>
+                    {t.inspector.unlockAllDeities}
+                  </button>
+                  <button type="button" class="btn-sm danger" onclick={() => handleUnlockAllDeities(0)}>
+                    {t.inspector.lockAllDeities}
+                  </button>
+                </div>
+              </div>
+
+              {#if islandOverview.deities && islandOverview.deities.length > 0}
+                <div class="deities-grid">
+                  {#each islandOverview.deities as deity}
+                    <div class="deity-card" class:active={deity.status === 2} class:unlocked={deity.status === 1}>
+                      <div class="deity-header">
+                        <span class="deity-name">
+                          {#if deity.index === 0}🏹{:else if deity.index === 1}🌾{:else if deity.index === 2}🔨{:else}⚔️{/if}
+                          {deity.name}
+                        </span>
+                        {#if targetMode === 'campaign'}
+                          <span class="deity-island-tag">Island {deity.island}</span>
+                        {:else}
+                          <span class="deity-island-tag">Global Buff</span>
+                        {/if}
+                      </div>
+
+                      <div class="deity-status-bar">
+                        <span class="deity-status-pill status-{deity.status}">
+                          {#if deity.status === 2}
+                            {t.inspector.deityStatusActive}
+                          {:else if deity.status === 1}
+                            {t.inspector.deityStatusUnlocked}
+                          {:else}
+                            {t.inspector.deityStatusLocked}
+                          {/if}
+                        </span>
+                      </div>
+
+                      <div class="deity-actions">
+                        <button
+                          type="button"
+                          class="btn-xs gold"
+                          disabled={deity.status === 2}
+                          onclick={() => handleSetDeityStatus(deity.index, 2)}
+                        >
+                          ⚡ Active
+                        </button>
+                        <button
+                          type="button"
+                          class="btn-xs"
+                          disabled={deity.status === 1}
+                          onclick={() => handleSetDeityStatus(deity.index, 1)}
+                        >
+                          🔓 Unlock
+                        </button>
+                        <button
+                          type="button"
+                          class="btn-xs danger"
+                          disabled={deity.status === 0}
+                          onclick={() => handleSetDeityStatus(deity.index, 0)}
+                        >
+                          🔒 Lock
+                        </button>
+                      </div>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+            </section>
+
+            <!-- Walls Fortification Card -->
+            <section class="card">
+              <div class="card-header-flex">
+                <h3>🧱 {t.inspector.walls}</h3>
+                <div class="batch-actions">
+                  <button type="button" class="btn-sm gold" onclick={() => handleBatchUpgradeWalls('built_only', 5, false)}>
+                    ⚡ {t.inspector.batchUpgradeBuilt}
+                  </button>
+                  <button type="button" class="btn-sm" onclick={() => handleBatchUpgradeWalls('all', 5, false)}>
+                    🏰 {t.inspector.batchUpgradeAll}
+                  </button>
+                </div>
+              </div>
+
+              <div class="filter-row">
+                <span class="filter-label">Filter:</span>
+                <button
+                  type="button"
+                  class="filter-btn"
+                  class:active={wallFilterSide === 'all'}
+                  onclick={() => wallFilterSide = 'all'}
+                >All ({islandOverview.walls.length})</button>
+                <button
+                  type="button"
+                  class="filter-btn"
+                  class:active={wallFilterSide === 'left'}
+                  onclick={() => wallFilterSide = 'left'}
+                >⬅️ {t.inspector.leftSide} ({islandOverview.walls.filter(w => w.side === 'left').length})</button>
+                <button
+                  type="button"
+                  class="filter-btn"
+                  class:active={wallFilterSide === 'right'}
+                  onclick={() => wallFilterSide = 'right'}
+                >➡️ {t.inspector.rightSide} ({islandOverview.walls.filter(w => w.side === 'right').length})</button>
+              </div>
+
+              <div class="walls-columns">
+                {#if wallFilterSide === 'all' || wallFilterSide === 'left'}
+                  <div class="wall-column">
+                    <h4>⬅️ {t.inspector.leftSide}</h4>
+                    <div class="entities-list">
+                      {#each islandOverview.walls.filter(w => w.side === 'left').reverse() as wall}
+                        <div class="entity-card wall-card" class:level-max={wall.level === 5}>
+                          <div class="entity-main">
+                            <div class="entity-coords">
+                              <span class="coord-badge">X = {wall.x}</span>
+                              <span class="dist-badge">{t.inspector.distance} {wall.distanceToCastle}m</span>
+                            </div>
+                            <div class="entity-type">
+                              <span class="wall-level-pill lvl-{wall.level}" class:horn={wall.hasHorn}>
+                                {#if wall.level === 5 && wall.hasHorn}
+                                  🛡️📯 Level 5 + Horn
+                                {:else if wall.level === 5}
+                                  🛡️ Level 5 (Iron)
+                                {:else if wall.level > 0}
+                                  🧱 Level {wall.level}
+                                {:else}
+                                  🪨 Dirt Mound (L0)
+                                {/if}
+                              </span>
+                            </div>
+                          </div>
+                          <div class="entity-actions">
+                            <button
+                              type="button"
+                              class="btn-xs"
+                              disabled={wall.level === 5 && !wall.hasHorn}
+                              onclick={() => handleUpgradeSingleWall(wall.id, 5, false)}
+                            >
+                              L5
+                            </button>
+                            <button
+                              type="button"
+                              class="btn-xs gold"
+                              disabled={wall.level === 5 && wall.hasHorn}
+                              onclick={() => handleUpgradeSingleWall(wall.id, 5, true)}
+                            >
+                              L5+Horn
+                            </button>
+                            {#if wall.level > 0}
+                              <button
+                                type="button"
+                                class="btn-xs danger"
+                                onclick={() => handleUpgradeSingleWall(wall.id, 0, false)}
+                              >
+                                L0
+                              </button>
+                            {/if}
+                          </div>
+                        </div>
+                      {/each}
+                    </div>
+                  </div>
+                {/if}
+
+                {#if wallFilterSide === 'all' || wallFilterSide === 'right'}
+                  <div class="wall-column">
+                    <h4>➡️ {t.inspector.rightSide}</h4>
+                    <div class="entities-list">
+                      {#each islandOverview.walls.filter(w => w.side === 'right') as wall}
+                        <div class="entity-card wall-card" class:level-max={wall.level === 5}>
+                          <div class="entity-main">
+                            <div class="entity-coords">
+                              <span class="coord-badge">X = {wall.x}</span>
+                              <span class="dist-badge">{t.inspector.distance} {wall.distanceToCastle}m</span>
+                            </div>
+                            <div class="entity-type">
+                              <span class="wall-level-pill lvl-{wall.level}" class:horn={wall.hasHorn}>
+                                {#if wall.level === 5 && wall.hasHorn}
+                                  🛡️📯 Level 5 + Horn
+                                {:else if wall.level === 5}
+                                  🛡️ Level 5 (Iron)
+                                {:else if wall.level > 0}
+                                  🧱 Level {wall.level}
+                                {:else}
+                                  🪨 Dirt Mound (L0)
+                                {/if}
+                              </span>
+                            </div>
+                          </div>
+                          <div class="entity-actions">
+                            <button
+                              type="button"
+                              class="btn-xs"
+                              disabled={wall.level === 5 && !wall.hasHorn}
+                              onclick={() => handleUpgradeSingleWall(wall.id, 5, false)}
+                            >
+                              L5
+                            </button>
+                            <button
+                              type="button"
+                              class="btn-xs gold"
+                              disabled={wall.level === 5 && wall.hasHorn}
+                              onclick={() => handleUpgradeSingleWall(wall.id, 5, true)}
+                            >
+                              L5+Horn
+                            </button>
+                            {#if wall.level > 0}
+                              <button
+                                type="button"
+                                class="btn-xs danger"
+                                onclick={() => handleUpgradeSingleWall(wall.id, 0, false)}
+                              >
+                                L0
+                              </button>
+                            {/if}
+                          </div>
+                        </div>
+                      {/each}
+                    </div>
+                  </div>
+                {/if}
+              </div>
+            </section>
+
+            <!-- Catapult Section inside Inspector -->
+            <section class="card">
+              <div class="card-header-flex">
+                <h3>☄️ {t.combat.catapultAmmo}</h3>
+              </div>
+              <div class="form-row wrap" style="align-items: flex-end; gap: 1.5rem; margin-top: 0.5rem;">
+                <!-- Left Catapult -->
+                <div style="flex: 1; min-width: 250px; background: rgba(255,255,255,0.02); padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid var(--color-border);">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                    <span style="font-weight: 600; color: #64b5f6;">{t.combat.catapultLeft}</span>
+                    {#if leftCatapult}
+                      <span class="coord-badge" style="font-size: 0.8rem;">X = {leftCatapult.x}</span>
+                    {:else}
+                      <span style="font-size: 0.8rem; color: var(--color-text-secondary);">(Not built)</span>
+                    {/if}
+                  </div>
+                  {#if leftCatapult}
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                      <label style="flex: 1; margin: 0;">
+                        {t.combat.barrelsCount}
+                        <input
+                          type="number"
+                          min="0"
+                          max="999"
+                          value={leftCatapultInput}
+                          oninput={(event) => (customLeftBarrels = Math.max(0, Number((event.currentTarget as HTMLInputElement).value)))}
+                        />
+                      </label>
+                      <button type="button" onclick={() => handleSetCatapultBarrels(-1)} style="margin-top: 1.25rem;">
+                        {t.combat.catapultApply}
+                      </button>
+                    </div>
+                  {:else}
+                    <p class="muted" style="margin: 0; font-size: 0.85rem;">{t.combat.noCatapultOnIsland}</p>
+                  {/if}
+                </div>
+
+                <!-- Right Catapult -->
+                <div style="flex: 1; min-width: 250px; background: rgba(255,255,255,0.02); padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid var(--color-border);">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                    <span style="font-weight: 600; color: #ffb74d;">{t.combat.catapultRight}</span>
+                    {#if rightCatapult}
+                      <span class="coord-badge" style="font-size: 0.8rem;">X = {rightCatapult.x}</span>
+                    {:else}
+                      <span style="font-size: 0.8rem; color: var(--color-text-secondary);">(Not built)</span>
+                    {/if}
+                  </div>
+                  {#if rightCatapult}
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                      <label style="flex: 1; margin: 0;">
+                        {t.combat.barrelsCount}
+                        <input
+                          type="number"
+                          min="0"
+                          max="999"
+                          value={rightCatapultInput}
+                          oninput={(event) => (customRightBarrels = Math.max(0, Number((event.currentTarget as HTMLInputElement).value)))}
+                        />
+                      </label>
+                      <button type="button" onclick={() => handleSetCatapultBarrels(1)} style="margin-top: 1.25rem;">
+                        {t.combat.catapultApply}
+                      </button>
+                    </div>
+                  {:else}
+                    <p class="muted" style="margin: 0; font-size: 0.85rem;">{t.combat.noCatapultOnIsland}</p>
+                  {/if}
+                </div>
+              </div>
+            </section>
+
+            <!-- Archer Towers Card -->
+            <section class="card">
+              <div class="card-header-flex">
+                <h3>🏹 {t.inspector.towers}</h3>
+                <div class="batch-actions">
+                  <button type="button" class="btn-sm" onclick={() => handleBatchUpgradeTowers('built_only', 'tower5')}>
+                    🛡️ {t.inspector.batchUpgradeTowersRoof}
+                  </button>
+                  <button type="button" class="btn-sm gold" onclick={() => handleBatchUpgradeTowers('built_only', 'tower6')}>
+                    ⚡ {t.inspector.batchUpgradeTowersL6}
+                  </button>
+                </div>
+              </div>
+
+              <div class="filter-row">
+                <span class="filter-label">Filter:</span>
+                <button
+                  type="button"
+                  class="filter-btn"
+                  class:active={towerFilterSide === 'all'}
+                  onclick={() => towerFilterSide = 'all'}
+                >All ({islandOverview.towers.length})</button>
+                <button
+                  type="button"
+                  class="filter-btn"
+                  class:active={towerFilterSide === 'left'}
+                  onclick={() => towerFilterSide = 'left'}
+                >⬅️ {t.inspector.leftSide} ({islandOverview.towers.filter(tw => tw.side === 'left').length})</button>
+                <button
+                  type="button"
+                  class="filter-btn"
+                  class:active={towerFilterSide === 'right'}
+                  onclick={() => towerFilterSide = 'right'}
+                >➡️ {t.inspector.rightSide} ({islandOverview.towers.filter(tw => tw.side === 'right').length})</button>
+              </div>
+
+              <div class="walls-columns">
+                {#if towerFilterSide === 'all' || towerFilterSide === 'left'}
+                  <div class="wall-column">
+                    <h4>⬅️ {t.inspector.leftSide}</h4>
+                    <div class="entities-list">
+                      {#each islandOverview.towers.filter(tw => tw.side === 'left').reverse() as tower}
+                        <div class="entity-card tower-card" class:level-max={tower.type === 'tower6'}>
+                          <div class="entity-main">
+                            <div class="entity-coords">
+                              <span class="coord-badge">X = {tower.x}</span>
+                              <span class="dist-badge">{t.inspector.distance} {tower.distanceToCastle}m</span>
+                            </div>
+                            <div class="entity-type">
+                              <span class="tower-type-pill type-{tower.type}">
+                                {#if tower.type === 'tower6'}
+                                  🏹🏹🏹🏹 Level 6 (4 Archers)
+                                {:else if tower.type === 'tower5'}
+                                  🛡️ Level 5 (Roof)
+                                {:else if tower.type === 'ballista'}
+                                  🎯 Ballista
+                                {:else if tower.type === 'baker'}
+                                  🍞 Bakery
+                                {:else if tower.type === 'knight'}
+                                  ⚔️ Knight Tower
+                                {:else if tower.type === 'tower0'}
+                                  🪨 Dirt Mound (L0)
+                                {:else}
+                                  🏹 {tower.typeLabel}
+                                {/if}
+                              </span>
+                            </div>
+                          </div>
+                          <div class="entity-actions tower-actions">
+                            <button
+                              type="button"
+                              class="btn-xs gold"
+                              disabled={tower.type === 'tower6'}
+                              onclick={() => handleUpgradeSingleTower(tower.id, 'tower6')}
+                              title="4 Archers"
+                            >
+                              4 Archers
+                            </button>
+                            <button
+                              type="button"
+                              class="btn-xs"
+                              disabled={tower.type === 'tower5'}
+                              onclick={() => handleUpgradeSingleTower(tower.id, 'tower5')}
+                              title="Roof"
+                            >
+                              Roof (L5)
+                            </button>
+                            <button
+                              type="button"
+                              class="btn-xs"
+                              disabled={tower.type === 'ballista'}
+                              onclick={() => handleUpgradeSingleTower(tower.id, 'ballista')}
+                              title="Ballista Tower"
+                            >
+                              Ballista
+                            </button>
+                            <button
+                              type="button"
+                              class="btn-xs"
+                              disabled={tower.type === 'baker'}
+                              onclick={() => handleUpgradeSingleTower(tower.id, 'baker')}
+                              title="Bakery Tower"
+                            >
+                              Bakery
+                            </button>
+                            <button
+                              type="button"
+                              class="btn-xs"
+                              disabled={tower.type === 'knight'}
+                              onclick={() => handleUpgradeSingleTower(tower.id, 'knight')}
+                              title="Knight Tower"
+                            >
+                              Knight
+                            </button>
+                            {#if tower.type !== 'tower0'}
+                              <button
+                                type="button"
+                                class="btn-xs danger"
+                                onclick={() => handleUpgradeSingleTower(tower.id, 'tower0')}
+                                title="Reset to Dirt Mound"
+                              >
+                                L0
+                              </button>
+                            {/if}
+                          </div>
+                        </div>
+                      {/each}
+                    </div>
+                  </div>
+                {/if}
+
+                {#if towerFilterSide === 'all' || towerFilterSide === 'right'}
+                  <div class="wall-column">
+                    <h4>➡️ {t.inspector.rightSide}</h4>
+                    <div class="entities-list">
+                      {#each islandOverview.towers.filter(tw => tw.side === 'right') as tower}
+                        <div class="entity-card tower-card" class:level-max={tower.type === 'tower6'}>
+                          <div class="entity-main">
+                            <div class="entity-coords">
+                              <span class="coord-badge">X = {tower.x}</span>
+                              <span class="dist-badge">{t.inspector.distance} {tower.distanceToCastle}m</span>
+                            </div>
+                            <div class="entity-type">
+                              <span class="tower-type-pill type-{tower.type}">
+                                {#if tower.type === 'tower6'}
+                                  🏹🏹🏹🏹 Level 6 (4 Archers)
+                                {:else if tower.type === 'tower5'}
+                                  🛡️ Level 5 (Roof)
+                                {:else if tower.type === 'ballista'}
+                                  🎯 Ballista
+                                {:else if tower.type === 'baker'}
+                                  🍞 Bakery
+                                {:else if tower.type === 'knight'}
+                                  ⚔️ Knight Tower
+                                {:else if tower.type === 'tower0'}
+                                  🪨 Dirt Mound (L0)
+                                {:else}
+                                  🏹 {tower.typeLabel}
+                                {/if}
+                              </span>
+                            </div>
+                          </div>
+                          <div class="entity-actions tower-actions">
+                            <button
+                              type="button"
+                              class="btn-xs gold"
+                              disabled={tower.type === 'tower6'}
+                              onclick={() => handleUpgradeSingleTower(tower.id, 'tower6')}
+                              title="4 Archers"
+                            >
+                              4 Archers
+                            </button>
+                            <button
+                              type="button"
+                              class="btn-xs"
+                              disabled={tower.type === 'tower5'}
+                              onclick={() => handleUpgradeSingleTower(tower.id, 'tower5')}
+                              title="Roof"
+                            >
+                              Roof (L5)
+                            </button>
+                            <button
+                              type="button"
+                              class="btn-xs"
+                              disabled={tower.type === 'ballista'}
+                              onclick={() => handleUpgradeSingleTower(tower.id, 'ballista')}
+                              title="Ballista Tower"
+                            >
+                              Ballista
+                            </button>
+                            <button
+                              type="button"
+                              class="btn-xs"
+                              disabled={tower.type === 'baker'}
+                              onclick={() => handleUpgradeSingleTower(tower.id, 'baker')}
+                              title="Bakery Tower"
+                            >
+                              Bakery
+                            </button>
+                            <button
+                              type="button"
+                              class="btn-xs"
+                              disabled={tower.type === 'knight'}
+                              onclick={() => handleUpgradeSingleTower(tower.id, 'knight')}
+                              title="Knight Tower"
+                            >
+                              Knight
+                            </button>
+                            {#if tower.type !== 'tower0'}
+                              <button
+                                type="button"
+                                class="btn-xs danger"
+                                onclick={() => handleUpgradeSingleTower(tower.id, 'tower0')}
+                                title="Reset to Dirt Mound"
+                              >
+                                L0
+                              </button>
+                            {/if}
+                          </div>
+                        </div>
+                      {/each}
+                    </div>
+                  </div>
+                {/if}
+              </div>
+            </section>
+
+            <!-- Trees Card -->
+            <section class="card">
+              <div class="card-header-flex">
+                <h3>🌲 {t.inspector.trees}</h3>
+              </div>
+
+              <!-- Safe Range Marking Tool -->
+              <div class="range-tool-box">
+                <div class="range-inputs">
+                  <label class="range-label">
+                    {t.inspector.rangeFrom}
+                    <input
+                      type="number"
+                      bind:value={treeRangeMin}
+                      class="coord-input"
+                    />
+                  </label>
+                  <label class="range-label">
+                    {t.inspector.rangeTo}
+                    <input
+                      type="number"
+                      bind:value={treeRangeMax}
+                      class="coord-input"
+                    />
+                  </label>
+                  <button type="button" class="btn-sm" onclick={() => handleBatchTreeMark(true)}>
+                    🪓 {t.inspector.markRange}
+                  </button>
+                  <button type="button" class="btn-sm secondary" onclick={() => handleBatchTreeMark(false)}>
+                    🛡️ {t.inspector.unmarkRange}
+                  </button>
+                </div>
+                <div class="range-hint">
+                  ℹ️ {t.inspector.nearBeggarCampWarn}
+                </div>
+              </div>
+
+              <!-- Filter bar for trees -->
+              <div class="filter-row">
+                <span class="filter-label">Filter:</span>
+                <button
+                  type="button"
+                  class="filter-btn"
+                  class:active={treeFilterStatus === 'all'}
+                  onclick={() => treeFilterStatus = 'all'}
+                >All ({islandOverview.trees.length})</button>
+                <button
+                  type="button"
+                  class="filter-btn"
+                  class:active={treeFilterStatus === 'standing'}
+                  onclick={() => treeFilterStatus = 'standing'}
+                >🟢 {t.inspector.standing} ({islandOverview.trees.filter(tr => !tr.marked).length})</button>
+                <button
+                  type="button"
+                  class="filter-btn"
+                  class:active={treeFilterStatus === 'marked'}
+                  onclick={() => treeFilterStatus = 'marked'}
+                >🪓 {t.inspector.markedToCut} ({islandOverview.trees.filter(tr => tr.marked).length})</button>
+                <button
+                  type="button"
+                  class="filter-btn danger"
+                  class:active={treeFilterStatus === 'danger'}
+                  onclick={() => treeFilterStatus = 'danger'}
+                >⚠️ Near Camps ({islandOverview.trees.filter(tr => tr.isNearBeggarCamp).length})</button>
+              </div>
+
+              <!-- Trees scrollable list -->
+              <div class="trees-grid">
+                {#each islandOverview.trees.filter(tr => {
+                  if (treeFilterStatus === 'standing' && tr.marked) return false;
+                  if (treeFilterStatus === 'marked' && !tr.marked) return false;
+                  if (treeFilterStatus === 'danger' && !tr.isNearBeggarCamp) return false;
+                  return true;
+                }) as tree}
+                  <div class="tree-item-card" class:near-camp={tree.isNearBeggarCamp} class:is-marked={tree.marked}>
+                    <div class="tree-info">
+                      <span class="coord-badge">X = {tree.x}</span>
+                      {#if tree.isNearBeggarCamp}
+                        <span class="camp-warning" title="Warning: Close to beggar camp!">
+                          ⚠️ Camp {tree.nearCampDist}m
+                        </span>
+                      {:else}
+                        <span class="dist-badge">{tree.distanceToCastle}m</span>
+                      {/if}
+                    </div>
+                    <div class="tree-actions">
+                      {#if tree.marked}
+                        <button
+                          type="button"
+                          class="btn-xs marked-btn"
+                          onclick={() => handleToggleTreeMark(tree.id, true)}
+                        >
+                          🪓 {t.inspector.markedToCut}
+                        </button>
+                      {:else}
+                        <button
+                          type="button"
+                          class="btn-xs stand-btn"
+                          onclick={() => handleToggleTreeMark(tree.id, false)}
+                        >
+                          🌲 {t.inspector.markTree}
+                        </button>
+                      {/if}
+                    </div>
+                  </div>
+                {/each}
+              </div>
+            </section>
+          {:else}
+            <div class="empty-state">
+              <p>{t.status.noFileLoaded}</p>
+            </div>
+          {/if}
+        </div>
+        {/if}
+
         {#if activeTab === 'resources'}
         <div class="tab-content">
           <section class="card">
-            <h3>Ressources</h3>
+            <h3>{t.resources.title}</h3>
             <div class="card-section">
               <div class="card-section-header">
-                <h4>Or du joueur</h4>
+                <h4>{t.resources.playerCoins}</h4>
                 <span class="current-value">
-                  Actuel: {(() => {
+                  {t.resources.current} {(() => {
                     const value = getPlayerCoins(data, {
+                      mode: targetMode,
+                      challengeIndex: selectedChallenge,
                       campaignIndex: selectedCampaign,
                       islandIndex: selectedIsland,
                       playerIndex: coinsPlayerIndex
@@ -1086,17 +2780,17 @@
               </div>
               <div class="form-row wrap">
                 <label>
-                  Joueur
+                  {t.resources.player}
                   <select
                     value={coinsPlayerIndex}
                     onchange={(event) => (coinsPlayerIndex = Number((event.currentTarget as HTMLSelectElement).value))}
                   >
-                    <option value={0}>Joueur 1</option>
-                    <option value={1}>Joueur 2</option>
+                    <option value={0}>{t.resources.player} 1</option>
+                    <option value={1}>{t.resources.player} 2</option>
                   </select>
                 </label>
                 <label>
-                  Pièces
+                  {t.resources.coins}
                   <input
                     type="number"
                     min="0"
@@ -1104,16 +2798,18 @@
                     oninput={(event) => (coinsAmount = Number((event.currentTarget as HTMLInputElement).value))}
                   />
                 </label>
-                <button type="button" onclick={handleCoinsUpdate}>Appliquer</button>
+                <button type="button" onclick={handleCoinsUpdate}>{t.resources.apply}</button>
               </div>
             </div>
 
             <div class="card-section">
               <div class="card-section-header">
-                <h4>Gemmes du joueur</h4>
+                <h4>{t.resources.playerGems}</h4>
                 <span class="current-value">
-                  Actuel: {(() => {
+                  {t.resources.current} {(() => {
                     const value = getPlayerGems(data, {
+                      mode: targetMode,
+                      challengeIndex: selectedChallenge,
                       campaignIndex: selectedCampaign,
                       islandIndex: selectedIsland,
                       playerIndex: gemsPlayerIndex
@@ -1124,17 +2820,17 @@
               </div>
               <div class="form-row wrap">
                 <label>
-                  Joueur
+                  {t.resources.player}
                   <select
                     value={gemsPlayerIndex}
                     onchange={(event) => (gemsPlayerIndex = Number((event.currentTarget as HTMLSelectElement).value))}
                   >
-                    <option value={0}>Joueur 1</option>
-                    <option value={1}>Joueur 2</option>
+                    <option value={0}>{t.resources.player} 1</option>
+                    <option value={1}>{t.resources.player} 2</option>
                   </select>
                 </label>
                 <label>
-                  Gemmes
+                  {t.resources.gems}
                   <input
                     type="number"
                     min="0"
@@ -1142,7 +2838,7 @@
                     oninput={(event) => (gemsAmount = Number((event.currentTarget as HTMLInputElement).value))}
                   />
                 </label>
-                <button type="button" onclick={handleGemsUpdate}>Appliquer</button>
+                <button type="button" onclick={handleGemsUpdate}>{t.resources.apply}</button>
               </div>
             </div>
           </section>
@@ -1152,14 +2848,14 @@
         {#if activeTab === 'navigation'}
         <div class="tab-content">
           <section class="card">
-            <h3>Navigation & conquête</h3>
+            <h3>{t.navigation.title}</h3>
             <div class="card-section">
               <div class="card-section-header">
-                <h4>Voyage rapide</h4>
+                <h4>{t.navigation.fastTravel}</h4>
               </div>
               <div class="form-row wrap">
                 <label>
-                  Pièces
+                  {t.resources.coins}
                   <input
                     type="number"
                     min="0"
@@ -1168,7 +2864,7 @@
                   />
                 </label>
                 <label>
-                  Gemmes
+                  {t.resources.gems}
                   <input
                     type="number"
                     min="0"
@@ -1177,7 +2873,7 @@
                   />
                 </label>
                 <label>
-                  Piquiers
+                  {t.navigation.pikemen}
                   <input
                     type="number"
                     min="0"
@@ -1186,7 +2882,7 @@
                   />
                 </label>
                 <label>
-                  Fermiers
+                  {t.navigation.farmers}
                   <input
                     type="number"
                     min="0"
@@ -1195,7 +2891,7 @@
                   />
                 </label>
                 <label>
-                  Bateaux
+                  {t.navigation.boats}
                   <input
                     type="number"
                     min="0"
@@ -1203,17 +2899,17 @@
                     oninput={(event) => (gotoBoats = Number((event.currentTarget as HTMLInputElement).value))}
                   />
                 </label>
-                <button type="button" onclick={handleGoto}>Mettre à jour la destination</button>
+                <button type="button" onclick={handleGoto}>{t.navigation.updateDestination}</button>
               </div>
             </div>
 
             <div class="card-section">
               <div class="card-section-header">
-                <h4>Prendre le contrôle</h4>
+                <h4>{t.navigation.takeOver}</h4>
               </div>
               <div class="form-row wrap">
                 <label>
-                  Pièces du joueur
+                  {t.navigation.playerCoins}
                   <input
                     type="number"
                     min="0"
@@ -1222,7 +2918,7 @@
                   />
                 </label>
                 <label>
-                  Archers
+                  {t.navigation.archers}
                   <input
                     type="number"
                     min="0"
@@ -1231,7 +2927,7 @@
                   />
                 </label>
                 <label>
-                  Ouvriers
+                  {t.navigation.workers}
                   <input
                     type="number"
                     min="0"
@@ -1240,41 +2936,41 @@
                   />
                 </label>
                 <label>
-                  Décalage formation
+                  {t.navigation.formationOffset}
                   <input
                     type="number"
                     value={takeOverOffset}
                     oninput={(event) => (takeOverOffset = Number((event.currentTarget as HTMLInputElement).value))}
                   />
                 </label>
-                <button type="button" onclick={handleTakeOver}>Nettoyer l'île</button>
+                <button type="button" onclick={handleTakeOver}>{t.navigation.cleanIsland}</button>
               </div>
             </div>
 
             <div class="card-section">
               <div class="button-group">
-                <button type="button" onclick={handleDestroyPortals}>Détruire les portails</button>
-                <button type="button" onclick={handleExterminate}>Exterminer les ennemis</button>
+                <button type="button" onclick={handleDestroyPortals}>{t.navigation.destroy}</button>
+                <button type="button" onclick={handleExterminate}>{t.navigation.exterminateEnemies}</button>
               </div>
             </div>
 
             <div class="card-section">
               <div class="card-section-header">
-                <h4>Élaguer la forêt</h4>
+                <h4>{t.navigation.markTrees}</h4>
               </div>
               <div class="form-row wrap">
                 <label>
-                  Joueur
+                  {t.resources.player}
                   <select
                     value={treesPlayerIndex}
                     onchange={(event) => (treesPlayerIndex = Number((event.currentTarget as HTMLSelectElement).value))}
                   >
-                    <option value={0}>Joueur 1</option>
-                    <option value={1}>Joueur 2</option>
+                    <option value={0}>{t.resources.player} 1</option>
+                    <option value={1}>{t.resources.player} 2</option>
                   </select>
                 </label>
                 <label>
-                  Pièces
+                  {t.resources.coins}
                   <input
                     type="number"
                     min="0"
@@ -1282,7 +2978,55 @@
                     oninput={(event) => (treesCoins = Number((event.currentTarget as HTMLInputElement).value))}
                   />
                 </label>
-                <button type="button" onclick={handleMarkTrees}>Marquer les arbres</button>
+                <button type="button" onclick={handleMarkTrees}>{t.navigation.mark}</button>
+              </div>
+            </div>
+
+            <div class="card-section">
+              <div class="card-section-header">
+                <h4>{t.navigation.teleportTitle}</h4>
+              </div>
+              <div class="form-row wrap" style="align-items: flex-end; gap: 1rem;">
+                <label>
+                  {t.resources.player}
+                  <select
+                    value={teleportPlayerIndex}
+                    onchange={(event) => (teleportPlayerIndex = Number((event.currentTarget as HTMLSelectElement).value))}
+                  >
+                    <option value={0}>{t.resources.player} 1</option>
+                    <option value={1}>{t.resources.player} 2</option>
+                  </select>
+                </label>
+
+                {#if islandOverview?.players}
+                  {@const curPlayer = islandOverview.players.find(p => p.name === `Player ${teleportPlayerIndex + 1}`)}
+                  {#if curPlayer}
+                    <div style="display: flex; flex-direction: column; gap: 0.25rem; justify-content: center; padding-bottom: 0.25rem;">
+                      <span style="font-size: 0.8rem; color: var(--color-text-secondary);">{t.resources.current}</span>
+                      <span class="coord-badge" style="color: #64b5f6; font-size: 0.95rem;">X = {curPlayer.x}</span>
+                    </div>
+                  {/if}
+                {/if}
+
+                <label>
+                  {t.navigation.teleportX}
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={teleportTargetX}
+                    oninput={(event) => (teleportTargetX = Number((event.currentTarget as HTMLInputElement).value))}
+                  />
+                </label>
+
+                <button type="button" onclick={() => handleTeleportPlayer()}>
+                  {t.navigation.teleportButton}
+                </button>
+
+                {#if islandOverview}
+                  <button type="button" onclick={() => handleTeleportPlayer(islandOverview.castleX)} style="background: rgba(255,255,255,0.06);">
+                    🏰 {t.navigation.teleportToCastle} ({islandOverview.castleX})
+                  </button>
+                {/if}
               </div>
             </div>
           </section>
@@ -1292,24 +3036,24 @@
         {#if activeTab === 'combat'}
         <div class="tab-content">
           <section class="card">
-            <h3>Combat</h3>
+            <h3>{t.combat.title}</h3>
             <div class="card-section">
               <div class="card-section-header">
-                <h4>Formation de bataille</h4>
+                <h4>{t.combat.battleFormation}</h4>
               </div>
               <div class="form-row wrap">
                 <label>
-                  Joueur
+                  {t.resources.player}
                   <select
                     value={formationPlayerIndex}
                     onchange={(event) => (formationPlayerIndex = Number((event.currentTarget as HTMLSelectElement).value))}
                   >
-                    <option value={0}>Joueur 1</option>
-                    <option value={1}>Joueur 2</option>
+                    <option value={0}>{t.resources.player} 1</option>
+                    <option value={1}>{t.resources.player} 2</option>
                   </select>
                 </label>
                 <label>
-                  Position X
+                  {t.combat.positionX}
                   <input
                     type="number"
                     value={formationPosition}
@@ -1317,7 +3061,7 @@
                   />
                 </label>
                 <label>
-                  Archers
+                  {t.navigation.archers}
                   <input
                     type="number"
                     min="0"
@@ -1326,7 +3070,7 @@
                   />
                 </label>
                 <label>
-                  Piquiers
+                  {t.navigation.pikemen}
                   <input
                     type="number"
                     min="0"
@@ -1334,7 +3078,76 @@
                     oninput={(event) => (formationPikemen = Number((event.currentTarget as HTMLInputElement).value))}
                   />
                 </label>
-                <button type="button" onclick={handleFormation}>Déployer</button>
+                <button type="button" onclick={handleFormation}>{t.combat.deploy}</button>
+              </div>
+            </div>
+
+            <div class="card-section">
+              <div class="card-section-header">
+                <h4>{t.combat.catapultAmmo}</h4>
+              </div>
+              <div class="form-row wrap" style="align-items: flex-end; gap: 1.5rem;">
+                <!-- Left Catapult -->
+                <div style="flex: 1; min-width: 250px; background: rgba(255,255,255,0.02); padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid var(--color-border);">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                    <span style="font-weight: 600; color: #64b5f6;">{t.combat.catapultLeft}</span>
+                    {#if leftCatapult}
+                      <span class="coord-badge" style="font-size: 0.8rem;">X = {leftCatapult.x}</span>
+                    {:else}
+                      <span style="font-size: 0.8rem; color: var(--color-text-secondary);">(Not built)</span>
+                    {/if}
+                  </div>
+                  {#if leftCatapult}
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                      <label style="flex: 1; margin: 0;">
+                        {t.combat.barrelsCount}
+                        <input
+                          type="number"
+                          min="0"
+                          max="999"
+                          value={leftCatapultInput}
+                          oninput={(event) => (customLeftBarrels = Math.max(0, Number((event.currentTarget as HTMLInputElement).value)))}
+                        />
+                      </label>
+                      <button type="button" onclick={() => handleSetCatapultBarrels(-1)} style="margin-top: 1.25rem;">
+                        {t.combat.catapultApply}
+                      </button>
+                    </div>
+                  {:else}
+                    <p class="muted" style="margin: 0; font-size: 0.85rem;">{t.combat.noCatapultOnIsland}</p>
+                  {/if}
+                </div>
+
+                <!-- Right Catapult -->
+                <div style="flex: 1; min-width: 250px; background: rgba(255,255,255,0.02); padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid var(--color-border);">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                    <span style="font-weight: 600; color: #ffb74d;">{t.combat.catapultRight}</span>
+                    {#if rightCatapult}
+                      <span class="coord-badge" style="font-size: 0.8rem;">X = {rightCatapult.x}</span>
+                    {:else}
+                      <span style="font-size: 0.8rem; color: var(--color-text-secondary);">(Not built)</span>
+                    {/if}
+                  </div>
+                  {#if rightCatapult}
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                      <label style="flex: 1; margin: 0;">
+                        {t.combat.barrelsCount}
+                        <input
+                          type="number"
+                          min="0"
+                          max="999"
+                          value={rightCatapultInput}
+                          oninput={(event) => (customRightBarrels = Math.max(0, Number((event.currentTarget as HTMLInputElement).value)))}
+                        />
+                      </label>
+                      <button type="button" onclick={() => handleSetCatapultBarrels(1)} style="margin-top: 1.25rem;">
+                        {t.combat.catapultApply}
+                      </button>
+                    </div>
+                  {:else}
+                    <p class="muted" style="margin: 0; font-size: 0.85rem;">{t.combat.noCatapultOnIsland}</p>
+                  {/if}
+                </div>
               </div>
             </div>
           </section>
@@ -1344,14 +3157,14 @@
         {#if activeTab === 'construction'}
         <div class="tab-content">
           <section class="card">
-            <h3>Construction</h3>
+            <h3>{t.construction.title}</h3>
             <div class="card-section">
               <div class="card-section-header">
-                <h4>Pimper l'île</h4>
+                <h4>{t.construction.pimpIsland}</h4>
               </div>
               <div class="form-row wrap">
                 <label>
-                  Pièces du joueur
+                  {t.navigation.playerCoins}
                   <input
                     type="number"
                     min="0"
@@ -1360,7 +3173,7 @@
                   />
                 </label>
                 <label>
-                  Unités à recruter
+                  {t.construction.unitsToRecruit}
                   <input
                     type="number"
                     min="0"
@@ -1368,7 +3181,7 @@
                     oninput={(event) => (pimpSpawnCount = Number((event.currentTarget as HTMLInputElement).value))}
                   />
                 </label>
-                <button type="button" onclick={handlePimp}>Mettre à niveau</button>
+                <button type="button" onclick={handlePimp}>{t.construction.upgrade}</button>
               </div>
             </div>
           </section>
@@ -1378,33 +3191,42 @@
         {#if activeTab === 'recruitment'}
         <div class="tab-content">
           <section class="card">
-            <h3>Recrutement</h3>
+            <h3>{t.recruitment.title}</h3>
             <div class="card-section">
               <div class="card-section-header">
-                <h4>Point de rassemblement</h4>
+                <h4>{t.recruitment.rallyPoint}</h4>
               </div>
               <div class="form-row wrap">
                 <label>
-                  Joueur
+                  {t.resources.player}
                   <select
                     value={archerPlayerIndex}
                     onchange={(event) => (archerPlayerIndex = Number((event.currentTarget as HTMLSelectElement).value))}
                   >
-                    <option value={0}>Joueur 1</option>
-                    <option value={1}>Joueur 2</option>
+                    <option value={0}>{t.resources.player} 1</option>
+                    <option value={1}>{t.resources.player} 2</option>
                   </select>
                 </label>
+                {#if islandOverview?.players}
+                  {@const curP = islandOverview.players.find(p => p.name === `Player ${archerPlayerIndex + 1}`)}
+                  {#if curP}
+                    <div style="display: flex; flex-direction: column; gap: 0.25rem; justify-content: center; padding-bottom: 0.25rem;">
+                      <span style="font-size: 0.8rem; color: var(--color-text-secondary); font-family: 'Cinzel', serif;">Player Position:</span>
+                      <span class="coord-badge" style="color: #64b5f6; font-size: 0.95rem;">X = {curP.x} (Y = {curP.y})</span>
+                    </div>
+                  {/if}
+                {/if}
               </div>
             </div>
 
             <div class="card-section">
               <div class="card-section-header">
-                <h4>Archers</h4>
-                <span class="current-value">Actuel: {countUnits(data, selectedCampaign, selectedIsland, ARCHER_PREFABS) ?? 0}</span>
+                <h4>{t.recruitment.archers}</h4>
+                <span class="current-value">{t.recruitment.current} {countUnits(data, selectedCampaign, selectedIsland, ARCHER_PREFABS, targetMode, selectedChallenge) ?? 0}</span>
               </div>
               <div class="form-row wrap">
                 <label>
-                  Quantité
+                  {t.recruitment.quantity}
                   <input
                     type="number"
                     min="1"
@@ -1412,18 +3234,18 @@
                     oninput={(event) => (archerCount = Number((event.currentTarget as HTMLInputElement).value))}
                   />
                 </label>
-                <button type="button" onclick={handleSpawnArchers}>Ajouter</button>
+                <button type="button" onclick={handleSpawnArchers}>{t.recruitment.add}</button>
               </div>
             </div>
 
             <div class="card-section">
               <div class="card-section-header">
-                <h4>Ouvriers</h4>
-                <span class="current-value">Actuel: {countUnits(data, selectedCampaign, selectedIsland, WORKER_PREFABS) ?? 0}</span>
+                <h4>{t.recruitment.workers}</h4>
+                <span class="current-value">{t.recruitment.current} {countUnits(data, selectedCampaign, selectedIsland, WORKER_PREFABS, targetMode, selectedChallenge) ?? 0}</span>
               </div>
               <div class="form-row wrap">
                 <label>
-                  Quantité
+                  {t.recruitment.quantity}
                   <input
                     type="number"
                     min="1"
@@ -1431,18 +3253,18 @@
                     oninput={(event) => (workerCount = Number((event.currentTarget as HTMLInputElement).value))}
                   />
                 </label>
-                <button type="button" onclick={handleSpawnWorkers}>Ajouter</button>
+                <button type="button" onclick={handleSpawnWorkers}>{t.recruitment.add}</button>
               </div>
             </div>
 
             <div class="card-section">
               <div class="card-section-header">
-                <h4>Fermiers</h4>
-                <span class="current-value">Actuel: {countUnits(data, selectedCampaign, selectedIsland, FARMER_PREFABS) ?? 0}</span>
+                <h4>{t.recruitment.farmers}</h4>
+                <span class="current-value">{t.recruitment.current} {countUnits(data, selectedCampaign, selectedIsland, FARMER_PREFABS, targetMode, selectedChallenge) ?? 0}</span>
               </div>
               <div class="form-row wrap">
                 <label>
-                  Quantité
+                  {t.recruitment.quantity}
                   <input
                     type="number"
                     min="1"
@@ -1450,18 +3272,18 @@
                     oninput={(event) => (farmerCount = Number((event.currentTarget as HTMLInputElement).value))}
                   />
                 </label>
-                <button type="button" onclick={handleSpawnFarmers}>Ajouter</button>
+                <button type="button" onclick={handleSpawnFarmers}>{t.recruitment.add}</button>
               </div>
             </div>
 
             <div class="card-section">
               <div class="card-section-header">
-                <h4>Piquiers</h4>
-                <span class="current-value">Actuel: {countUnits(data, selectedCampaign, selectedIsland, PIKEMAN_PREFABS) ?? 0}</span>
+                <h4>{t.recruitment.pikemen}</h4>
+                <span class="current-value">{t.recruitment.current} {countUnits(data, selectedCampaign, selectedIsland, PIKEMAN_PREFABS, targetMode, selectedChallenge) ?? 0}</span>
               </div>
               <div class="form-row wrap">
                 <label>
-                  Quantité
+                  {t.recruitment.quantity}
                   <input
                     type="number"
                     min="1"
@@ -1469,17 +3291,59 @@
                     oninput={(event) => (pikemanCount = Number((event.currentTarget as HTMLInputElement).value))}
                   />
                 </label>
-                <button type="button" onclick={handleSpawnPikemen}>Ajouter</button>
+                <button type="button" onclick={handleSpawnPikemen}>{t.recruitment.add}</button>
               </div>
             </div>
 
             <div class="card-section">
               <div class="card-section-header">
-                <h4>Recrutement combiné</h4>
+                <h4>{t.recruitment.knights}</h4>
+                <span class="current-value">
+                  {t.recruitment.current} {knightStats.total} 
+                  <span style="font-size: 0.8rem; color: var(--color-gold-light); margin-left: 0.35rem;">
+                    (⬅️ {knightStats.left} | {knightStats.right} ➡️)
+                  </span>
+                </span>
               </div>
               <div class="form-row wrap">
                 <label>
-                  Archers
+                  {t.recruitment.quantity}
+                  <input
+                    type="number"
+                    min="1"
+                    value={knightCount}
+                    oninput={(event) => (knightCount = Number((event.currentTarget as HTMLInputElement).value))}
+                  />
+                </label>
+                <label>
+                  {t.recruitment.side}
+                  <select
+                    value={knightSide}
+                    onchange={(event) => (knightSide = Number((event.currentTarget as HTMLSelectElement).value) as 1 | -1)}
+                  >
+                    <option value={1}>{t.recruitment.sideRight}</option>
+                    <option value={-1}>{t.recruitment.sideLeft}</option>
+                  </select>
+                </label>
+                <label class="checkbox-label">
+                  <input
+                    type="checkbox"
+                    bind:checked={knightWithArchers}
+                    class="custom-checkbox"
+                  />
+                  <span>{t.recruitment.withArchers}</span>
+                </label>
+                <button type="button" onclick={handleSpawnKnights}>{t.recruitment.add}</button>
+              </div>
+            </div>
+
+            <div class="card-section">
+              <div class="card-section-header">
+                <h4>{t.recruitment.combinedRecruitment}</h4>
+              </div>
+              <div class="form-row wrap">
+                <label>
+                  {t.recruitment.archers}
                   <input
                     type="number"
                     min="0"
@@ -1488,7 +3352,7 @@
                   />
                 </label>
                 <label>
-                  Ouvriers
+                  {t.recruitment.workers}
                   <input
                     type="number"
                     min="0"
@@ -1497,7 +3361,7 @@
                   />
                 </label>
                 <label>
-                  Piquiers
+                  {t.recruitment.pikemen}
                   <input
                     type="number"
                     min="0"
@@ -1505,7 +3369,7 @@
                     oninput={(event) => (comboPikemen = Number((event.currentTarget as HTMLInputElement).value))}
                   />
                 </label>
-                <button type="button" onclick={handleSpawnCombo}>Ajouter les unités</button>
+                <button type="button" onclick={handleSpawnCombo}>{t.recruitment.addUnits}</button>
               </div>
             </div>
           </section>
@@ -1964,7 +3828,7 @@
     font-family: 'Cinzel', serif;
   }
 
-  .form-row input,
+  .form-row input:not([type="checkbox"]),
   .form-row select {
     border-radius: 4px;
     border: 2px solid var(--color-border);
@@ -1976,16 +3840,42 @@
     transition: all 0.2s ease;
   }
 
-  .form-row input:focus,
+  .form-row input:not([type="checkbox"]):focus,
   .form-row select:focus {
     outline: none;
     border-color: var(--color-gold);
     box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.2);
   }
 
-  .form-row input:hover,
+  .form-row input:not([type="checkbox"]):hover,
   .form-row select:hover {
     border-color: var(--color-border-light);
+  }
+
+  .form-row label.checkbox-label {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.75rem;
+    cursor: pointer;
+    flex: 0 0 auto;
+    padding-bottom: 0.75rem;
+    user-select: none;
+  }
+
+  .form-row label.checkbox-label span {
+    color: var(--color-text-primary);
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+
+  .custom-checkbox {
+    width: 20px;
+    height: 20px;
+    min-width: 20px;
+    cursor: pointer;
+    accent-color: var(--color-gold);
+    border-radius: 4px;
   }
 
   .form-row button {
@@ -2070,6 +3960,585 @@
 
     .welcome h1 {
       font-size: 1.75rem;
+    }
+  }
+  .overview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .overview-item {
+    background: var(--color-bg-secondary, #2a2218);
+    border: 1px solid var(--color-border, #4a3d2a);
+    border-radius: 6px;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .overview-item.highlight {
+    border-color: var(--color-gold, #d4af37);
+    background: linear-gradient(180deg, rgba(212, 175, 55, 0.1) 0%, rgba(42, 34, 24, 0.9) 100%);
+  }
+
+  .overview-label {
+    font-size: 0.85rem;
+    color: var(--color-text-secondary, #c4b5a0);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .overview-value {
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: var(--color-text-primary, #f5f0e8);
+  }
+
+  .text-gold {
+    color: var(--color-gold, #d4af37) !important;
+  }
+
+  .overview-sub {
+    font-size: 0.85rem;
+    color: var(--color-text-muted, #8b8070);
+  }
+
+  .special-points-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 6px;
+    border: 1px dashed var(--color-border, #4a3d2a);
+  }
+
+  .special-points-title {
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--color-gold-light, #f4d03f);
+  }
+
+  .special-points-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .special-badge {
+    padding: 0.25rem 0.6rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-card);
+  }
+
+  .special-badge.beggar_camp {
+    background: rgba(205, 133, 63, 0.25);
+    border-color: var(--color-warning, #cd853f);
+    color: #f4d03f;
+  }
+
+  .special-badge.portal {
+    background: rgba(138, 43, 226, 0.25);
+    border-color: #9370db;
+    color: #dda0dd;
+  }
+
+  .special-badge.statue {
+    background: rgba(70, 130, 180, 0.25);
+    border-color: #4682b4;
+    color: #87ceeb;
+  }
+
+  .special-badge.mine {
+    background: rgba(169, 169, 169, 0.25);
+    border-color: #a9a9a9;
+    color: #dcdcdc;
+  }
+
+  .special-badge.wreck {
+    background: rgba(210, 105, 30, 0.25);
+    border-color: #d2691e;
+    color: #f4a460;
+  }
+
+  .special-badge.boat {
+    background: rgba(30, 144, 255, 0.25);
+    border-color: #1e90ff;
+    color: #00bfff;
+  }
+
+  .card-header-flex {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .batch-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .btn-sm {
+    padding: 0.45rem 0.9rem;
+    font-size: 0.85rem;
+  }
+
+  .btn-sm.gold, .btn-xs.gold {
+    background: linear-gradient(180deg, var(--color-gold) 0%, var(--color-gold-dark) 100%);
+    color: #1a1410;
+    border-color: var(--color-gold-light);
+    font-weight: 700;
+  }
+
+  .btn-sm.secondary {
+    background: var(--color-bg-card);
+    border-color: var(--color-border);
+  }
+
+  .btn-xs {
+    padding: 0.25rem 0.55rem;
+    font-size: 0.8rem;
+    border-radius: 4px;
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-card);
+    color: var(--color-text-primary);
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.15s ease;
+  }
+
+  .btn-xs:hover:not(:disabled) {
+    border-color: var(--color-gold);
+    color: var(--color-gold-light);
+  }
+
+  .btn-xs:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  .btn-xs.danger {
+    background: rgba(139, 37, 0, 0.3);
+    border-color: var(--color-error, #8b2500);
+    color: #ff9980;
+  }
+
+  .filter-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .filter-label {
+    font-size: 0.85rem;
+    color: var(--color-text-secondary);
+    font-weight: 600;
+  }
+
+  .filter-btn {
+    padding: 0.3rem 0.7rem;
+    font-size: 0.8rem;
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+  }
+
+  .filter-btn.active {
+    background: var(--color-bg-card);
+    border-color: var(--color-gold);
+    color: var(--color-gold-light);
+    font-weight: 700;
+  }
+
+  .filter-btn.danger.active {
+    border-color: #e67e22;
+    color: #f39c12;
+  }
+
+  .walls-columns {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 1.5rem;
+  }
+
+  .wall-column h4 {
+    margin: 0 0 0.75rem 0;
+    font-size: 1.05rem;
+    color: var(--color-gold-light);
+  }
+
+  .entities-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+
+  .entity-card {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    gap: 0.75rem;
+    transition: all 0.2s ease;
+  }
+
+  .entity-card.level-max {
+    border-color: rgba(212, 175, 55, 0.5);
+    background: linear-gradient(90deg, rgba(212, 175, 55, 0.05) 0%, rgba(42, 34, 24, 0.9) 100%);
+  }
+
+  .entity-main {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .entity-coords {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .coord-badge {
+    font-family: monospace;
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: #e0d0b0;
+    background: rgba(0, 0, 0, 0.4);
+    padding: 0.15rem 0.45rem;
+    border-radius: 3px;
+  }
+
+  .dist-badge {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+  }
+
+  .wall-level-pill {
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+
+  .wall-level-pill.lvl-5 {
+    color: var(--color-gold-light);
+  }
+
+  .wall-level-pill.lvl-5.horn {
+    color: #ffd700;
+    text-shadow: 0 0 6px rgba(255, 215, 0, 0.4);
+  }
+
+  .wall-level-pill.lvl-0 {
+    color: var(--color-text-muted);
+  }
+
+  .tower-type-pill {
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+
+  .tower-type-pill.type-tower6 {
+    color: #ffd700;
+    text-shadow: 0 0 6px rgba(255, 215, 0, 0.4);
+  }
+
+  .tower-type-pill.type-tower5 {
+    color: var(--color-gold-light);
+  }
+
+  .tower-type-pill.type-ballista {
+    color: #ff9966;
+  }
+
+  .tower-type-pill.type-baker {
+    color: #f4d03f;
+  }
+
+  .tower-type-pill.type-knight {
+    color: #87ceeb;
+  }
+
+  .tower-type-pill.type-tower0 {
+    color: var(--color-text-muted);
+  }
+
+  .entity-actions {
+    display: flex;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+  }
+
+  .range-tool-box {
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    padding: 1rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .range-inputs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .range-label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.85rem;
+    color: var(--color-text-secondary);
+  }
+
+  .coord-input {
+    width: 90px;
+    padding: 0.4rem 0.6rem;
+    background: #0a0a0a;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    color: var(--color-text-primary);
+    font-family: monospace;
+    font-size: 0.9rem;
+  }
+
+  .range-hint {
+    font-size: 0.8rem;
+    color: var(--color-warning, #cd853f);
+  }
+
+  .trees-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+    gap: 0.6rem;
+    max-height: 480px;
+    overflow-y: auto;
+    padding-right: 0.5rem;
+  }
+
+  .tree-item-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.65rem 0.85rem;
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+  }
+
+  .tree-item-card.is-marked {
+    border-color: rgba(205, 133, 63, 0.6);
+    background: rgba(205, 133, 63, 0.08);
+  }
+
+  .tree-item-card.near-camp {
+    border-color: #e67e22;
+    box-shadow: 0 0 6px rgba(230, 126, 34, 0.2);
+  }
+
+  .tree-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .camp-warning {
+    font-size: 0.75rem;
+    color: #f39c12;
+    font-weight: 700;
+  }
+
+  .marked-btn {
+    width: 100%;
+    background: rgba(205, 133, 63, 0.3);
+    border-color: var(--color-warning);
+    color: #f4d03f;
+  }
+
+  .stand-btn {
+    width: 100%;
+  }
+
+  .deities-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1rem;
+  }
+
+  .deity-card {
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    transition: all 0.2s ease;
+  }
+
+  .deity-card.active {
+    border-color: var(--color-gold);
+    background: linear-gradient(180deg, rgba(212, 175, 55, 0.12) 0%, rgba(42, 34, 24, 0.9) 100%);
+    box-shadow: 0 0 10px rgba(212, 175, 55, 0.15);
+  }
+
+  .deity-card.unlocked {
+    border-color: #4682b4;
+  }
+
+  .deity-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .deity-name {
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: var(--color-text-primary);
+  }
+
+  .deity-island-tag {
+    font-size: 0.75rem;
+    padding: 0.15rem 0.45rem;
+    border-radius: 3px;
+    background: rgba(0, 0, 0, 0.4);
+    color: var(--color-gold-light);
+    border: 1px solid var(--color-border);
+  }
+
+  .deity-status-pill {
+    font-size: 0.85rem;
+    font-weight: 700;
+  }
+
+  .deity-status-pill.status-2 {
+    color: #ffd700;
+    text-shadow: 0 0 6px rgba(255, 215, 0, 0.4);
+  }
+
+  .deity-status-pill.status-1 {
+    color: #87ceeb;
+  }
+
+  .deity-status-pill.status-0 {
+    color: var(--color-text-muted);
+  }
+
+  .deity-actions {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+  }
+
+  .asset-editor-shell {
+    min-height: 100vh;
+    background: var(--color-bg-primary);
+  }
+
+  .asset-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-bg-secondary);
+  }
+
+  .asset-header h1,
+  .asset-card h2 {
+    margin: 0;
+  }
+
+  .asset-content {
+    width: min(1100px, calc(100% - 2rem));
+    margin: 0 auto;
+    padding: 1.5rem 0 3rem;
+  }
+
+  .asset-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+  }
+
+  .asset-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+  }
+
+  .asset-card label {
+    display: grid;
+    grid-template-columns: 1fr 110px;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .asset-card label.asset-checkbox-label {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    margin-top: 0.5rem;
+    cursor: pointer;
+    font-size: 0.88rem;
+    line-height: 1.35;
+  }
+
+  .asset-card label.asset-checkbox-label input[type="checkbox"] {
+    width: 1.1rem;
+    height: 1.1rem;
+    margin: 0.15rem 0 0 0;
+    flex-shrink: 0;
+    cursor: pointer;
+  }
+
+  .asset-card input {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .safety-card,
+  .empty-assets {
+    margin-top: 1rem;
+  }
+
+  .safety-card code {
+    overflow-wrap: anywhere;
+  }
+
+  @media (max-width: 700px) {
+    .asset-header {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+
+    .asset-header .header-actions {
+      width: 100%;
+      flex-wrap: wrap;
     }
   }
 </style>

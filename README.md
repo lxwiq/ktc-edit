@@ -1,322 +1,120 @@
-# Kingdom Two Crowns Save Editor
+# Kingdom Two Crowns Save & Asset Editor
 
-A cross-platform save file editor for Kingdom Two Crowns built with Tauri and SvelteKit.
+Edit coins and gems, manage islands and units, and customize mounts and game settings in a desktop app built with Tauri and SvelteKit.
 
-## Features
+**[Download for macOS (Apple Silicon)](https://github.com/nguyenphuquang1234567/ktc-edit/releases/latest)** · [What's changed](CHANGELOG.md) · [Report a bug](https://github.com/nguyenphuquang1234567/ktc-edit/issues)
 
-### Resource Management
-- Edit player coins and gems
-- Adjust resource amounts for any player (1 or 2)
-- Real-time display of current values
+The current published v0.1.0 release includes an Apple Silicon (`aarch64`) DMG. Windows, Linux, and Intel Mac builds are not included in that release; source and a multi-platform build workflow are available, but this README does not claim runtime verification on those platforms.
 
-### Island Navigation
-- Fast travel between islands with custom resource loadout
-- Configure coins, gems, pikemen, farmers, and boats for travel
-- Take control of islands with custom spawn configurations
-- Destroy all enemy portals
-- Exterminate all enemies
-- Mark trees for removal with coin rewards
+## What's new in this fork
 
-### Combat
-- Deploy battle formations at specific positions
-- Spawn archers and pikemen in formation
-- Customizable formation offset and position
+This project continues [lxwiq/ktc-edit](https://github.com/lxwiq/ktc-edit). In addition to the original save editor, this fork adds:
 
-### Construction
-- Upgrade islands to maximum level
-- Automatically upgrade castle and walls
-- Spawn units and mark trees simultaneously
+- **Game asset editing:** mount speed, stamina and abilities; archer movement and attack timing; builder movement and work time; player and knight wallet settings; iron wall base HP; coin and gem scale.
+- **Campaign and Challenge selection:** resources, recruitment, island map and inspector, catapult oil barrels, and shrine/deity buffs where supported by the selected mode.
+- **Ruler teleport and catapult oil barrel editing** in the save editor.
+- **Apple Silicon game patches:** warhorse buff collider limit, visible coin limit, and preservation of vagrant camps after deforestation on recognized game builds.
+- **Asset lookup using Unity object and script structures**, with supported-profile checks before applying asset changes.
 
-### Unit Recruitment
-- Spawn individual units: archers, workers, farmers, pikemen
-- Combined recruitment for multiple unit types
-- Configurable quantities for each unit type
-- Real-time unit count display
+These are implemented features, not a claim that every setting has been tested in gameplay on every game version or DLC. Multiplayer behavior for camp preservation is unverified.
 
-### Safety Features
-- Automatic backup creation before saving
-- Backup files stored with timestamp
-- Campaign and island context selector
-- Clear status messages for all operations
+## Quick start
 
-### Internationalization
-- Automatic language detection
-- Supported languages: English, French
-- Fallback to English for unsupported languages
+1. Download the DMG from [Releases](https://github.com/nguyenphuquang1234567/ktc-edit/releases/latest) and install `ktcedit.app` in Applications.
+2. Close Kingdom Two Crowns and keep a separate copy of your save before editing.
+3. Launch the app and open your `global-v35` save file.
+4. Select **Campaign** or **Challenge**, then the relevant island or challenge.
+5. Change the values you need and click **Save**. The app creates a backup before writing.
+6. Start the game and check your changes.
 
-## Installation
+For asset settings, choose **Edit Game Assets** from the welcome screen. Select your game's Data folder if the default Steam path is unavailable, adjust settings, and use **Apply**. The Apple Silicon binary patches have their own Apply and Restore controls.
 
-### Download Pre-built Binaries
+## What you can edit
 
-Download the latest release for your platform from the [Releases](https://github.com/YOUR_USERNAME/ktcedit/releases) page:
+| Area | Examples |
+| --- | --- |
+| Resources | Player 1 and Player 2 coins and gems |
+| Navigation | Island travel, ruler teleport, island map and inspector |
+| Combat and recruitment | Unit spawning, formations, enemy and portal actions |
+| Construction | Castle and wall upgrades, tree actions, catapult oil barrels |
+| Game assets | Mounts, archers, builders, wallets, iron walls, bag scale |
+| Apple Silicon patches | Warhorse collider limit, visible coin limit, vagrant camp preservation |
 
-- **macOS**: Download the `.dmg` file
-- **Windows**: Download the `.msi` or `.exe` installer
-- **Linux**: Download the `.deb` or `.AppImage` file
+Some actions depend on the selected mode and game build. The app hides non-applicable tabs in Challenge mode.
 
-### Build from Source
+## Compatibility
 
-See [Build Instructions](#building-from-source) below.
+- **Save editing:** targets the `global-v35` save format (gzip-compressed JSON).
+- **Game assets:** accepts only the file profiles recognized by the current code. A different game update may be rejected; do not assume all DLC or versions are supported.
+- **Binary patches:** require supported macOS Apple Silicon builds of `GameAssembly.dylib`; these are separate from ordinary save edits.
+- **Interface:** English.
+- **Distribution:** the current published installer is for Apple Silicon macOS. Check the release assets for the actual available downloads.
 
-## Usage
+The default macOS save location is:
 
-### Opening a Save File
-
-1. Launch the application
-2. The default save file location for your operating system will be displayed:
-   - **macOS**: `~/Library/Application Support/nl.noio.kingdom-two-crowns/Release/global-v35`
-   - **Windows**: `C:\Users\USERNAME\AppData\LocalLow\noio\KingdomTwoCrowns\Release\global-v35`
-   - **Linux**: `~/.config/unity3d/noio/KingdomTwoCrowns/Release/global-v35`
-3. Click "Open global-v35" to select your save file
-4. The file picker will automatically open to the default location
-
-### Editing Save Data
-
-1. Select the campaign and island you want to edit
-2. Navigate through the tabs: Resources, Navigation, Combat, Construction, Recruitment
-3. Modify the values as desired
-4. Click "Save" to apply changes
-5. A backup will be created automatically before saving
-
-### Backup Management
-
-Backups are created automatically in the same directory as your save file with the format:
-```
-global-v35.backup.YYYY-MM-DD_HH-MM-SS
+```text
+~/Library/Application Support/nl.noio.kingdom-two-crowns/Release/global-v35
 ```
 
-To restore a backup, simply rename it to `global-v35` (after backing up your current save).
+If automatic detection fails on your platform, use the file picker to select your actual `global-v35`. Save locations can vary by installation.
 
-## Building from Source
+## Backups and recovery
 
-### Prerequisites
+Save backups are written beside the original file as `global-v35_<unix-timestamp>.bak`. Ordinary save and asset backups retain the five most recent backups per file stem, so keep a separate copy for long-term recovery.
 
-- Node.js 20 or higher
-- Rust toolchain (install from [rustup.rs](https://rustup.rs/))
-- Platform-specific dependencies (see below)
+To restore a save:
 
-#### macOS
-No additional dependencies required.
+1. Close the game and editor.
+2. Copy your current `global-v35` somewhere safe.
+3. Copy the chosen backup into the save folder and name the copy `global-v35`.
+4. Restart the game.
 
-#### Windows
-- Windows 10 SDK
-- Visual Studio Build Tools with C++ development tools
-- WebView2 Runtime (usually pre-installed on Windows 10/11)
-
-#### Linux (Ubuntu/Debian)
-```bash
-sudo apt-get update
-sudo apt-get install -y \
-    libwebkit2gtk-4.1-dev \
-    libappindicator3-dev \
-    librsvg2-dev \
-    patchelf
-```
-
-### Build Steps
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/ktcedit.git
-   cd ktcedit
-   ```
-
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-3. Build the application:
-   ```bash
-   npm run tauri build
-   ```
-
-4. Find the built application in `src-tauri/target/release/bundle/`
-
-### Development Mode
-
-Run the application in development mode with hot reload:
-
-```bash
-npm run tauri dev
-```
-
-### Type Checking
-
-Run TypeScript and Svelte type checking:
-
-```bash
-npm run check
-```
-
-## Creating Releases with GitHub Actions
-
-This project includes an automated build workflow that creates releases for all platforms.
-
-### Automatic Release Process
-
-1. Ensure all changes are committed and pushed to the main branch
-
-2. Create and push a version tag:
-   ```bash
-   git tag v0.1.0
-   git push origin v0.1.0
-   ```
-
-3. GitHub Actions will automatically:
-   - Build for macOS (Universal Binary)
-   - Build for Windows (MSI and NSIS installer)
-   - Build for Linux (DEB and AppImage)
-   - Create a draft release with all artifacts
-   - Generate changelog from commits since last tag
-
-4. Review the draft release on GitHub and publish when ready
-
-### Manual Release Trigger
-
-You can also trigger builds manually without creating a tag:
-
-1. Go to the "Actions" tab in your GitHub repository
-2. Select the "Build and Release" workflow
-3. Click "Run workflow"
-4. Choose the branch and click "Run workflow"
-
-### Version Numbering
-
-Follow [Semantic Versioning](https://semver.org/):
-- **MAJOR** version for incompatible API changes (v1.0.0, v2.0.0)
-- **MINOR** version for new functionality in a backward compatible manner (v1.1.0, v1.2.0)
-- **PATCH** version for backward compatible bug fixes (v1.0.1, v1.0.2)
-
-Examples:
-```bash
-# New feature release
-git tag v1.1.0
-git push origin v1.1.0
-
-# Bug fix release
-git tag v1.0.1
-git push origin v1.0.1
-
-# Breaking changes
-git tag v2.0.0
-git push origin v2.0.0
-```
-
-## Project Structure
-
-```
-ktcedit/
-├── src/                        # Frontend source code
-│   ├── lib/
-│   │   ├── components/        # Svelte components
-│   │   ├── i18n.ts           # Internationalization
-│   │   └── saveEditActions.ts # Save file manipulation
-│   └── routes/
-│       └── +page.svelte      # Main application page
-├── src-tauri/                 # Rust backend
-│   ├── src/
-│   │   └── main.rs           # Tauri application entry
-│   └── tauri.conf.json       # Tauri configuration
-├── .github/
-│   └── workflows/
-│       └── build.yml         # CI/CD workflow
-└── package.json              # Node.js dependencies
-```
-
-## Technical Details
-
-### Stack
-
-- **Frontend Framework**: SvelteKit 2.x with Svelte 5
-- **Language**: TypeScript 5.x
-- **Desktop Framework**: Tauri 2.x
-- **Backend Language**: Rust
-- **Build Tool**: Vite 6.x
-- **Styling**: Custom CSS (dark theme)
-
-### Save File Format
-
-Kingdom Two Crowns uses JSON-based save files with the following structure:
-- Campaign data with biome information
-- Island data with game objects
-- Player data with resources
-- Entity spawning system
-- Component-based architecture
-
-This editor manipulates the save file structure directly while maintaining compatibility with the game.
-
-## Supported Game Versions
-
-- Kingdom Two Crowns (v35 save format)
-
-Other versions may work but are not officially tested.
+Asset edits back up `resources.assets` and `sharedassets0.assets` before writing. Use **Restore** in the asset editor while its backup paths are available, or restore the matching file pair from your saved backups with the game closed. Binary patches create separate `GameAssembly.dylib` backups and expose their own restore controls.
 
 ## Troubleshooting
 
-### macOS: "App cannot be opened because it is from an unidentified developer"
+**The macOS app reports that it is damaged:** the current release notes provide this command for the downloaded app installed in Applications:
 
-Right-click the app, select "Open", then click "Open" in the dialog.
-
-Alternatively, go to System Preferences > Security & Privacy and allow the app.
-
-### Windows: "Windows protected your PC" warning
-
-Click "More info" then "Run anyway".
-
-### Linux: AppImage won't run
-
-Make the file executable:
-```bash
-chmod +x ktcedit_*.AppImage
-./ktcedit_*.AppImage
+```sh
+xattr -cr /Applications/ktcedit.app
 ```
 
-### Save file not found
+**The game assets are rejected:** the selected files do not match a supported profile. Report the game version, platform, and exact error; do not force an unsupported patch.
 
-Ensure Kingdom Two Crowns is installed and has been run at least once. The save file is only created after playing the game.
+**Changes do not appear:** close the game before editing, confirm you saved the correct campaign or challenge, and restart the game. Asset settings can interact with existing save and runtime state.
 
-### Changes not appearing in game
+For bug reports, include your app version, OS and architecture, game version/DLC, selected mode, exact error, and steps to reproduce. Remove personal information from attachments.
 
-Make sure to:
-1. Close Kingdom Two Crowns before editing
-2. Save changes in the editor
-3. Verify the backup was created
-4. Restart Kingdom Two Crowns
+## Build from source
+
+You need Node.js 20 or later, Rust, and the platform dependencies for Tauri 2. The [build workflow](.github/workflows/build.yml) lists the CI dependencies and targets.
+
+```sh
+git clone https://github.com/nguyenphuquang1234567/ktc-edit.git
+cd ktc-edit
+npm ci
+npm run tauri dev
+```
+
+To check the frontend or build an installer:
+
+```sh
+npm run check
+npm run tauri build
+```
+
+Built bundles are placed in `src-tauri/target/release/bundle/`. The included GitHub Actions workflow builds draft releases on `v*` tags or manual dispatch; publishing a release is a separate step.
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Bug reports and contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md). For compatibility changes, describe the game build and platform used and distinguish code checks from actual gameplay testing.
 
-### Development Guidelines
+If this tool helped you, consider leaving a ⭐ so other players can find it.
 
-1. Follow the existing code style
-2. Add type definitions for new functions
-3. Test changes on your platform before submitting
-4. Update documentation for user-facing changes
-5. Include clear commit messages
+## Credits and license
 
-### Commit Message Format
+- Forked from [lxwiq/ktc-edit](https://github.com/lxwiq/ktc-edit).
+- Original Python implementation: [bitwitch/kingdom-edit](https://github.com/bitwitch/kingdom-edit).
+- Kingdom Two Crowns by Noio and Raw Fury.
 
-Use conventional commits:
-```
-feat: add support for knight spawning
-fix: correct coin calculation for player 2
-docs: update installation instructions
-chore: update dependencies
-```
-
-## License
-
-MIT License - see LICENSE file for details
-
-## Credits
-
-- Original Python implementation: [bitwitch/kingdom-edit](https://github.com/bitwitch/kingdom-edit)
-- Kingdom Two Crowns by Noio and Raw Fury
-
-## Disclaimer
-
-This is an unofficial tool. Use at your own risk. Always backup your save files before editing.
-
-The developers of this tool are not affiliated with Noio or Raw Fury.
+[MIT License](LICENSE). This is an unofficial project, unaffiliated with Noio or Raw Fury. Keep backups before editing saves or game files.
