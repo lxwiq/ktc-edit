@@ -1,24 +1,14 @@
 # Changelog
 
-Notable user-facing changes in this fork of [lxwiq/ktc-edit](https://github.com/lxwiq/ktc-edit). Entries summarize repository history; feature availability depends on the game build and platform described in [README.md](README.md).
+Notable user-facing changes to Kingdom Two Crowns Save & Asset Editor. Feature availability depends on the game build and platform described in [README.md](README.md).
 
 ## Unreleased
 
-### Documentation
+### Contributed by [Nguyen Phu Quang](https://github.com/nguyenphuquang1234567)
 
-- Put the Apple Silicon macOS download and first-use instructions at the top of the README.
-- Replace placeholder download and clone URLs with this repository's URLs.
-- Document fork-specific features, English-only interface, and supported-profile limits.
-- Correct save backup names and document the five-backup retention policy and recovery steps.
-- Replace the template changelog with changes recorded in the fork's commit history.
+Merged from the fork [nguyenphuquang1234567/ktc-edit](https://github.com/nguyenphuquang1234567/ktc-edit) (history through `447848c`). These entries summarize the fork's commit history; they do not establish gameplay verification on every platform or DLC.
 
-## v0.1.0
-
-[Release and downloads](https://github.com/nguyenphuquang1234567/ktc-edit/releases/tag/v0.1.0)
-
-The published release includes an Apple Silicon macOS DMG. The following additions are recorded in the fork's history through `dc68387`; they do not establish gameplay verification on every platform or DLC.
-
-### Save editor
+#### Save editor
 
 - Campaign and Challenge mode selection with mode-specific tabs.
 - Challenge resource editing, recruitment, island map and inspector, shrine/deity buffs, and catapult oil barrels.
@@ -26,7 +16,7 @@ The published release includes an Apple Silicon macOS DMG. The following additio
 - Expanded save options and UI improvements.
 - Wall upgrades that inherit asset base HP, with optional reset of existing wall overrides in campaign and challenge saves.
 
-### Game asset editor
+#### Game asset editor
 
 - Mount speed, stamina, and ability settings, including Griffin, Lizard, regular horse, and warhorse targets.
 - Archer movement, attack preparation, cooldowns and intervals; builder movement and work time.
@@ -36,7 +26,7 @@ The published release includes an Apple Silicon macOS DMG. The following additio
 - Regular horse targets in `sharedassets0.assets` included alongside resource variants.
 - Negative run stamina rates and expanded numeric ranges for relevant asset settings.
 
-### Apple Silicon binary patches
+#### Apple Silicon binary patches
 
 - Warhorse buff collider limit controls.
 - Visible coin limit, separate from wallet balance and gems.
@@ -44,9 +34,17 @@ The published release includes an Apple Silicon macOS DMG. The following additio
 - Recognition of updated game build layouts for coin and camp hooks.
 - Separate restore controls and binary backups for supported patches.
 
-### Inherited functionality
+#### Documentation
+
+- Rewritten README with quick start, compatibility limits, backup naming and recovery steps.
+
+### Changed
+
+- French translation restored and extended to the new save editor features (the fork had made the interface English only). The game asset editor screen remains English only.
+- README and changelog credit the fork's contributions.
+
+## Initial version
 
 - Player coins and gems, island travel, combat formations, construction upgrades, and unit recruitment.
 - Automatic backups before save writes.
-
-The current interface is English. Earlier template documentation described additional languages and platform installers that are not present in the current interface or published release.
+- English and French interface with automatic language detection.

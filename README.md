@@ -2,25 +2,13 @@
 
 Edit coins and gems, manage islands and units, and customize mounts and game settings in a desktop app built with Tauri and SvelteKit.
 
-**[Download for macOS (Apple Silicon)](https://github.com/nguyenphuquang1234567/ktc-edit/releases/latest)** · [What's changed](CHANGELOG.md) · [Report a bug](https://github.com/nguyenphuquang1234567/ktc-edit/issues)
+[Releases](https://github.com/lxwiq/ktc-edit/releases) · [What's changed](CHANGELOG.md) · [Report a bug](https://github.com/lxwiq/ktc-edit/issues)
 
-The current published v0.1.0 release includes an Apple Silicon (`aarch64`) DMG. Windows, Linux, and Intel Mac builds are not included in that release; source and a multi-platform build workflow are available, but this README does not claim runtime verification on those platforms.
-
-## What's new in this fork
-
-This project continues [lxwiq/ktc-edit](https://github.com/lxwiq/ktc-edit). In addition to the original save editor, this fork adds:
-
-- **Game asset editing:** mount speed, stamina and abilities; archer movement and attack timing; builder movement and work time; player and knight wallet settings; iron wall base HP; coin and gem scale.
-- **Campaign and Challenge selection:** resources, recruitment, island map and inspector, catapult oil barrels, and shrine/deity buffs where supported by the selected mode.
-- **Ruler teleport and catapult oil barrel editing** in the save editor.
-- **Apple Silicon game patches:** warhorse buff collider limit, visible coin limit, and preservation of vagrant camps after deforestation on recognized game builds.
-- **Asset lookup using Unity object and script structures**, with supported-profile checks before applying asset changes.
-
-These are implemented features, not a claim that every setting has been tested in gameplay on every game version or DLC. Multiplayer behavior for camp preservation is unverified.
+> The game asset editor, Campaign/Challenge mode, island inspector and Apple Silicon patches were contributed by **[Nguyen Phu Quang](https://github.com/nguyenphuquang1234567)** in the fork [nguyenphuquang1234567/ktc-edit](https://github.com/nguyenphuquang1234567/ktc-edit). Thank you! See [Contributors](#contributors).
 
 ## Quick start
 
-1. Download the DMG from [Releases](https://github.com/nguyenphuquang1234567/ktc-edit/releases/latest) and install `ktcedit.app` in Applications.
+1. Download a build from [Releases](https://github.com/lxwiq/ktc-edit/releases) or [build from source](#build-from-source).
 2. Close Kingdom Two Crowns and keep a separate copy of your save before editing.
 3. Launch the app and open your `global-v35` save file.
 4. Select **Campaign** or **Challenge**, then the relevant island or challenge.
@@ -42,13 +30,14 @@ For asset settings, choose **Edit Game Assets** from the welcome screen. Select 
 
 Some actions depend on the selected mode and game build. The app hides non-applicable tabs in Challenge mode.
 
+These are implemented features, not a claim that every setting has been tested in gameplay on every game version or DLC. Multiplayer behavior for camp preservation is unverified.
+
 ## Compatibility
 
 - **Save editing:** targets the `global-v35` save format (gzip-compressed JSON).
 - **Game assets:** accepts only the file profiles recognized by the current code. A different game update may be rejected; do not assume all DLC or versions are supported.
 - **Binary patches:** require supported macOS Apple Silicon builds of `GameAssembly.dylib`; these are separate from ordinary save edits.
-- **Interface:** English.
-- **Distribution:** the current published installer is for Apple Silicon macOS. Check the release assets for the actual available downloads.
+- **Interface:** English and French, detected from the system language. The game asset editor screen is currently English only.
 
 The default macOS save location is:
 
@@ -73,7 +62,7 @@ Asset edits back up `resources.assets` and `sharedassets0.assets` before writing
 
 ## Troubleshooting
 
-**The macOS app reports that it is damaged:** the current release notes provide this command for the downloaded app installed in Applications:
+**The macOS app reports that it is damaged:** remove the quarantine attribute from the app installed in Applications:
 
 ```sh
 xattr -cr /Applications/ktcedit.app
@@ -90,7 +79,7 @@ For bug reports, include your app version, OS and architecture, game version/DLC
 You need Node.js 20 or later, Rust, and the platform dependencies for Tauri 2. The [build workflow](.github/workflows/build.yml) lists the CI dependencies and targets.
 
 ```sh
-git clone https://github.com/nguyenphuquang1234567/ktc-edit.git
+git clone https://github.com/lxwiq/ktc-edit.git
 cd ktc-edit
 npm ci
 npm run tauri dev
@@ -111,9 +100,13 @@ Bug reports and contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md
 
 If this tool helped you, consider leaving a ⭐ so other players can find it.
 
+## Contributors
+
+- **[lxwiq](https://github.com/lxwiq)** — original Tauri/SvelteKit save editor.
+- **[Nguyen Phu Quang](https://github.com/nguyenphuquang1234567)** — game asset editor (mounts, archers, builders, wallets, iron walls, bag scale), Campaign/Challenge mode, island map and inspector, shrines and deities, ruler teleport, catapult oil barrels, Apple Silicon binary patches (warhorse collider limit, visible coin limit, vagrant camp preservation) and the documentation rewrite. Originally developed in [nguyenphuquang1234567/ktc-edit](https://github.com/nguyenphuquang1234567/ktc-edit).
+
 ## Credits and license
 
-- Forked from [lxwiq/ktc-edit](https://github.com/lxwiq/ktc-edit).
 - Original Python implementation: [bitwitch/kingdom-edit](https://github.com/bitwitch/kingdom-edit).
 - Kingdom Two Crowns by Noio and Raw Fury.
 
