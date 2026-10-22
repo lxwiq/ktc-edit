@@ -40,7 +40,7 @@ fn code_at(limit: u16, hook: usize, cave: usize) -> Vec<u8> {
 }
 #[allow(non_snake_case)]
 pub(super) fn layout(b: &[u8], off: usize) -> Result<(usize, usize), String> {
-    for (hook, cave) in [(HOOK, CAVE), (0xb1512c, 0x44d76b0)] {
+    for (hook, cave) in [(HOOK, CAVE), (0xb1512c, 0x44d76b0), (0xb15cd4, 0x44cdf00)] {
         if word(b, off + hook - 4)? == 0xaa0003e8
             && word(b, off + hook + 4)? == 0xf9403a60
             && word(b, off + hook + 8)? == 0x6b1a011f
@@ -130,7 +130,7 @@ pub(super) fn locate(b: &[u8]) -> Result<usize, String> {
     }
     Ok(off)
 }
-fn read(b: &[u8]) -> Result<Option<u16>, String> {
+pub(super) fn read(b: &[u8]) -> Result<Option<u16>, String> {
     let o = locate(b)?;
     #[allow(non_snake_case)]
     let (hook_address, cave) = layout(b, o)?;
@@ -148,7 +148,7 @@ fn read(b: &[u8]) -> Result<Option<u16>, String> {
     }
     Ok(Some(limit))
 }
-fn patch(b: &mut [u8], limit: Option<u16>) -> Result<(), String> {
+pub(super) fn patch(b: &mut [u8], limit: Option<u16>) -> Result<(), String> {
     read(b)?;
     if limit == Some(0) {
         return Err("Visual limit must be positive (ARM64 immediate maximum: 65535)".into());
