@@ -1019,6 +1019,59 @@ fn reset_unit_damageable_overrides(mut data: Value) -> Result<UnitDamageableRese
     Ok(UnitDamageableResetResponse { data, cleared_units })
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UnitDamageableFileResponse {
+    path: String,
+    backup: Option<String>,
+    cleared_units: usize,
+    editor_data: Option<Value>,
+}
+
+fn reset_unit_damageable_file(save_path: &Path, editor_data: Option<Value>) -> Result<UnitDamageableFileResponse, String> {
+    validate_path(save_path)?;
+    // Always operate on the latest disk save, never flush unrelated staged edits.
+    let original = fs::read(save_path).map_err(|e| e.to_string())?;
+    let mut decoder = GzDecoder::new(original.as_slice());
+    let mut json = String::new();
+    decoder.read_to_string(&mut json).map_err(|e| e.to_string())?;
+    let parsed: Value = serde_json::from_str(&json).map_err(|e| e.to_string())?;
+    let reset = reset_unit_damageable_overrides(parsed)?;
+    // Synchronize the open editor's overrides too, retaining other unsaved edits.
+    let editor_data = editor_data.map(reset_unit_damageable_overrides).transpose()?.map(|r| r.data);
+    let mut backup = None;
+    if reset.cleared_units > 0 {
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&serde_json::to_vec(&reset.data).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+        let compressed = encoder.finish().map_err(|e| e.to_string())?;
+        if fs::read(save_path).map_err(|e| e.to_string())? != original {
+            return Err("Save changed during reset; retry with the game closed".into());
+        }
+        let backup_path = create_backup(save_path)?;
+        atomic_replace(save_path, &compressed)?;
+        // Verify the on-disk gzip/JSON after writing, restore on verification error.
+        let verified = load_save_file(save_path.to_string_lossy().into_owned());
+        if !verified.as_ref().is_ok_and(|r| r.data == reset.data) {
+            let rollback = atomic_replace(save_path, &original);
+            return Err(format!("Save verification failed; rollback: {rollback:?}. Backup: {}", backup_path.display()));
+        }
+        backup = Some(backup_path.to_string_lossy().into_owned());
+    }
+    Ok(UnitDamageableFileResponse {
+        path: save_path.to_string_lossy().into_owned(), backup,
+        cleared_units: reset.cleared_units, editor_data,
+    })
+}
+
+#[tauri::command]
+fn reset_unit_damageable_save(path: Option<String>, editor_data: Option<Value>) -> Result<UnitDamageableFileResponse, String> {
+    if game_is_running() { return Err("Close Kingdom Two Crowns before resetting the save".into()); }
+    let path = path.map(PathBuf::from).or_else(default_save_file_path)
+        .ok_or("Could not find global-v35 in the default game save folder")?;
+    reset_unit_damageable_file(&path, editor_data)
+}
+
 fn validate_asset_directory(directory: &Path) -> Result<(), String> {
     let resources = directory.join(RESOURCES_ASSETS);
     let shared = directory.join(SHARED_ASSETS);
@@ -2604,6 +2657,46 @@ mod tests {
     }
 
     #[test]
+    fn unit_reset_writes_disk_and_backup_without_flushing_unrelated_editor_changes() {
+        let dir = tempdir().unwrap();
+        let original = serde_json::json!({
+            "serializedSaveDataVersion":35,
+            "campaigns":[{"_islands":[{"objects":[
+                {"prefabPath":PROTECTED_UNIT_PREFABS[0],"componentData2":[{"name":"Damageable","data":"{}"},{"name":"Wallet","data":"{\"Coins\":2}"}]},
+                {"prefabPath":"Prefabs/Buildings/Wall5","componentData2":[{"name":"Damageable","data":"{\"hitPoints\":20}"}]}
+            ]}]}],
+            "challenges":[{"_islands":[{"objects":[
+                {"prefabPath":PROTECTED_UNIT_PREFABS[3],"componentData2":[{"name":"Damageable","data":"{}"}]}
+            ]}]}],
+            "unrelated":42
+        });
+        let path = write_test_save(dir.path(), &original);
+        let mut staged = original.clone();
+        staged["unrelated"] = serde_json::json!(999);
+        let response = reset_unit_damageable_file(&path, Some(staged)).unwrap();
+        assert_eq!(response.cleared_units, 2);
+        let backup = PathBuf::from(response.backup.unwrap());
+        assert_eq!(read_save(&backup), original);
+        let expected = reset_unit_damageable_overrides(original.clone()).unwrap().data;
+        assert_eq!(read_save(&path), expected);
+        let mut expected_editor = expected.clone();
+        expected_editor["unrelated"] = serde_json::json!(999);
+        assert_eq!(response.editor_data.unwrap(), expected_editor);
+        let before = fs::read(&path).unwrap();
+        let again = reset_unit_damageable_file(&path, None).unwrap();
+        assert_eq!(again.cleared_units, 0);
+        assert!(again.backup.is_none());
+        assert_eq!(fs::read(&path).unwrap(), before);
+        // Invalid input must not overwrite the file or create a backup.
+        let bad_dir = tempdir().unwrap();
+        let bad_path = write_test_save(bad_dir.path(), &serde_json::json!({"oops":1}));
+        let invalid = fs::read(&bad_path).unwrap();
+        assert!(reset_unit_damageable_file(&bad_path, None).is_err());
+        assert_eq!(fs::read(&bad_path).unwrap(), invalid);
+        assert_eq!(fs::read_dir(bad_dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
     fn negative_run_stamina_rates_are_allowed() {
         let dir = default_game_data_directory();
         if !dir.join(RESOURCES_ASSETS).exists() {
@@ -3004,6 +3097,7 @@ pub fn run() {
             save_save_file,
             select_save_file,
             reset_unit_damageable_overrides,
+            reset_unit_damageable_save,
             load_game_assets,
             select_game_data_directory,
             apply_game_assets,

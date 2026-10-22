@@ -1647,14 +1647,17 @@
   }
 
   async function resetUnitDamageable() {
-    if (!data || !filePath || assetBusy) return;
+    if (assetBusy || isLoading) return;
     assetBusy = true;
     unitResetStatus = null;
     unitResetError = null;
     try {
-      const response = await invoke<{data: JSONValue; clearedUnits: number}>("reset_unit_damageable_overrides", {data});
-      data = response.data;
-      unitResetStatus = `Removed saved Damageable overrides from ${response.clearedUnits} units in the open save. Not written to disk yet: click Back, then Save to create a backup and write it.`;
+      const response = await invoke<{path: string; backup: string | null; clearedUnits: number; editorData: JSONValue | null}>("reset_unit_damageable_save", {
+        path: filePath, editorData: filePath ? data : null
+      });
+      if (filePath === response.path && response.editorData !== null) data = response.editorData;
+      unitResetStatus = `Saved directly to ${response.path}: removed Damageable overrides from ${response.clearedUnits} units. No extra Save step needed.` +
+        (response.backup ? ` Backup: ${response.backup}.` : " No disk changes were needed.");
     } catch (error) { unitResetError = String(error); }
     finally { assetBusy = false; }
   }
@@ -1798,15 +1801,10 @@
               <label class="asset-checkbox-label"><input type="checkbox" checked={assetSettings.farmerInvulnerable === true} indeterminate={assetSettings.farmerInvulnerable === null} onchange={(e) => updateAssetBoolean('farmerInvulnerable', e)} /><span>Farmer — initially invulnerable</span></label>
               <p class="muted">Apply writes Damageable.isInvulnerableInitially to regular and Norse Lands prefabs, including Knight squad archers. Mixed checkboxes preserve differing variants until changed. Does not change HP, alwaysAttackable, or Pikemen. Greed may ignore invulnerable units; buffs/scripts can change invulnerability.</p>
               <h3>Existing units in save</h3>
-              <p class="muted">After applying assets, reset saved Damageable overrides so existing units can use prefab defaults on reload. This also resets their saved HP. Targets all Archers, Builders and Farmers across Campaigns and Challenges in the open save; walls, enemies, Knights and Pikemen are untouched.</p>
-              {#if filePath && data}
-                <p class="muted">Open save: <code>{filePath}</code></p>
-                <button type="button" onclick={resetUnitDamageable} disabled={assetBusy}>Reset saved Damageable — Archer, Builder, Farmer</button>
-                <p class="muted">This button changes only the open editor data. Click Back, then Save to write the save file with an automatic backup. Asset Apply/Restore does not write or undo this save edit.</p>
-              {:else}
-                <p class="muted">Open global-v35 in the save editor first, then return here to reset existing units.</p>
-                <button type="button" onclick={selectFile} disabled={isLoading || assetBusy}>Open global-v35</button>
-              {/if}
+              <p class="muted">After applying assets, reset saved Damageable overrides so existing units can use prefab defaults on reload. This also resets their saved HP. Targets all Archers, Builders and Farmers across Campaigns and Challenges; walls, enemies, Knights and Pikemen are untouched.</p>
+              <p class="muted">Target: {filePath ?? 'global-v35 in the default game save folder (detected automatically)'}</p>
+              <button type="button" onclick={resetUnitDamageable} disabled={assetBusy || isLoading}>Reset &amp; save Damageable — Archer, Builder, Farmer</button>
+              <p class="muted">Close the game first. Writes directly with an automatic backup and verification; no need to open global-v35 or click Save. If a save is open, uses that file and preserves unrelated unsaved editor changes without writing them. Asset Apply/Restore does not undo this save edit.</p>
               {#if unitResetStatus}<p class="status success">{unitResetStatus}</p>{/if}
               {#if unitResetError}<p class="status error">{unitResetError}</p>{/if}
             </section>
