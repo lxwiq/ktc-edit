@@ -330,6 +330,9 @@ struct AssetSettings {
     player_wallet_capacity: i32,
     knight_wallet_pay_taxes_above: i32,
     knight_coin_drop_probability: f32,
+    archer_invulnerable: Option<bool>,
+    builder_invulnerable: Option<bool>,
+    farmer_invulnerable: Option<bool>,
     bag_scale: f32,
 }
 
@@ -962,6 +965,60 @@ fn reset_walls_damageable_in_save_file(save_path: &Path) -> Result<usize, String
     Ok(cleared_count)
 }
 
+const FARMER_NAMES: [&str; 2] = ["Farmer", "Farmer_norselands"];
+const PROTECTED_UNIT_PREFABS: [&str; 7] = [
+    "Prefabs/Characters/Archer",
+    "Prefabs/Characters/norselands/Archer_norselands",
+    "Prefabs/Characters/norselands/Archer_Soldier_norselands",
+    "Prefabs/Characters/Worker",
+    "Prefabs/Characters/norselands/Worker_norselands",
+    "Prefabs/Characters/Farmer",
+    "Prefabs/Characters/norselands/Farmer_norselands",
+];
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UnitDamageableResetResponse {
+    data: Value,
+    cleared_units: usize,
+}
+
+// Remove only saved overrides, never the prefab's real component. Match exact
+// prefab paths, not display names or substrings (e.g. GreedArcher, FarmerShop).
+fn clear_unit_damageable_overrides(value: &mut Value) -> usize {
+    match value {
+        Value::Array(items) => items.iter_mut().map(clear_unit_damageable_overrides).sum(),
+        Value::Object(object) => {
+            let targeted = object.get("prefabPath").and_then(Value::as_str)
+                .is_some_and(|path| PROTECTED_UNIT_PREFABS.contains(&path));
+            let mut count = 0;
+            if targeted {
+                if let Some(components) = object.get_mut("componentData2").and_then(Value::as_array_mut) {
+                    let before = components.len();
+                    components.retain(|c| c.get("name").and_then(Value::as_str) != Some("Damageable"));
+                    count += usize::from(components.len() != before);
+                }
+            }
+            count + object.values_mut().map(clear_unit_damageable_overrides).sum::<usize>()
+        }
+        _ => 0,
+    }
+}
+
+#[tauri::command]
+fn reset_unit_damageable_overrides(mut data: Value) -> Result<UnitDamageableResetResponse, String> {
+    if data.get("serializedSaveDataVersion").is_none() {
+        return Err("Open a global-v35 save first".into());
+    }
+    let mut cleared_units = 0;
+    for key in ["campaigns", "challenges"] {
+        if let Some(container) = data.get_mut(key) {
+            cleared_units += clear_unit_damageable_overrides(container);
+        }
+    }
+    Ok(UnitDamageableResetResponse { data, cleared_units })
+}
+
 fn validate_asset_directory(directory: &Path) -> Result<(), String> {
     let resources = directory.join(RESOURCES_ASSETS);
     let shared = directory.join(SHARED_ASSETS);
@@ -1523,6 +1580,38 @@ fn primary_component_value(
     component_value(resources, shared, script_path, target)
 }
 
+fn unit_invulnerability_offsets(
+    resources: &[u8], script: i64, names: &[&str],
+) -> Result<Vec<usize>, String> {
+    names.iter().map(|name| {
+        let start = resolve_component_offset(resources, script, name, 0)?;
+        let name_len = read_int(resources, start + 28)?;
+        if !(0..=1024).contains(&name_len) { return Err("Invalid component name length".into()); }
+        let payload = (32 + name_len as usize + 3) & !3;
+        // Damageable serialized layout: isInvulnerableInitially is payload+80.
+        // Account for variable MonoBehaviour names instead of assuming +124.
+        let relative = payload + 80;
+        let offset = resolve_component_offset(resources, script, name, relative)?;
+        if resources[offset] > 1 { return Err(format!("Invalid Damageable boolean on {name}")); }
+        Ok(offset)
+    }).collect()
+}
+
+fn read_unit_invulnerability(resources: &[u8], script: i64, names: &[&str]) -> Result<Option<bool>, String> {
+    let offsets = unit_invulnerability_offsets(resources, script, names)?;
+    let first = *offsets.first().ok_or("No unit prefabs configured")?;
+    let value = resources[first] != 0;
+    Ok(if offsets.iter().all(|offset| (resources[*offset] != 0) == value) { Some(value) } else { None })
+}
+
+fn write_unit_invulnerability(resources: &mut [u8], script: i64, names: &[&str], value: Option<bool>) -> Result<(), String> {
+    if let Some(value) = value {
+        let offsets = unit_invulnerability_offsets(resources, script, names)?;
+        for offset in offsets { resources[offset] = u8::from(value); }
+    }
+    Ok(())
+}
+
 fn read_asset_settings(directory: &Path) -> Result<AssetSettings, String> {
     validate_asset_directory(directory)?;
     let resources = fs::read(directory.join(RESOURCES_ASSETS)).map_err(|err| err.to_string())?;
@@ -1767,6 +1856,9 @@ fn read_asset_settings(directory: &Path) -> Result<AssetSettings, String> {
             find_mono_script_path(&global_managers, "Character")?,
             &KNIGHT_COIN_DROP_PROBABILITY,
         )?,
+        archer_invulnerable: read_unit_invulnerability(&resources, damageable_script_path, &ARCHER_NAMES)?,
+        builder_invulnerable: read_unit_invulnerability(&resources, damageable_script_path, &BUILDER_NAMES)?,
+        farmer_invulnerable: read_unit_invulnerability(&resources, damageable_script_path, &FARMER_NAMES)?,
         bag_scale: consistent_builtin_component_value(&resources, &shared, 4, &BAG_SCALE)?,
     })
 }
@@ -2268,6 +2360,10 @@ fn apply_game_assets(
         settings.knight_coin_drop_probability,
     )?;
 
+    write_unit_invulnerability(&mut resources, damageable_script_path, &ARCHER_NAMES, settings.archer_invulnerable)?;
+    write_unit_invulnerability(&mut resources, damageable_script_path, &BUILDER_NAMES, settings.builder_invulnerable)?;
+    write_unit_invulnerability(&mut resources, damageable_script_path, &FARMER_NAMES, settings.farmer_invulnerable)?;
+
     let resources_backup = create_backup(&resources_path)?;
     let shared_backup = create_backup(&shared_path)?;
     atomic_replace(&resources_path, &resources)?;
@@ -2440,6 +2536,71 @@ mod tests {
             UPDATED_SHARED_SIZE
         ));
         assert!(!supported_asset_sizes(0, 0));
+    }
+
+    #[test]
+    fn unit_damageable_reset_is_scoped_and_preserves_other_save_data() {
+        let make = |prefab: &str| serde_json::json!({
+            "prefabPath": prefab, "name": "Archer", "position": [12, 3],
+            "componentData2": [
+                {"name":"Damageable", "type":"DamageableData", "data":"{\"hitPoints\":7,\"invulnerable\":false}"},
+                {"name":"Wallet", "data":"{\"Coins\":15}"},
+                {"name":"Character", "data":"{}"}
+            ]
+        });
+        let mut objects: Vec<Value> = PROTECTED_UNIT_PREFABS.iter().map(|p| make(p)).collect();
+        for path in ["Prefabs/Characters/Knight", "Prefabs/Characters/Pikeman",
+            "Prefabs/Enemies/GreedArcher", "Prefabs/Buildings/Wall5", "Prefabs/Characters/FarmerShop"] {
+            objects.push(make(path));
+        }
+        let original = serde_json::json!({
+            "serializedSaveDataVersion":35,
+            "campaigns":[{"_islands":[{"objects":objects.clone()}]}],
+            "challenges":[{"_islands":[{"objects":objects}]}],
+            "unrelated":make(PROTECTED_UNIT_PREFABS[0]), "prefs":{"keep":true}
+        });
+        let response = reset_unit_damageable_overrides(original.clone()).unwrap();
+        assert_eq!(response.cleared_units, 14);
+        let mut expected = original.clone();
+        for group in ["campaigns", "challenges"] {
+            for i in 0..7 {
+                expected[group][0]["_islands"][0]["objects"][i]["componentData2"]
+                    .as_array_mut().unwrap().remove(0);
+            }
+        }
+        assert_eq!(response.data, expected);
+        let again = reset_unit_damageable_overrides(response.data).unwrap();
+        assert_eq!(again.cleared_units, 0);
+        assert_eq!(again.data, expected);
+        assert!(reset_unit_damageable_overrides(serde_json::json!({})).is_err());
+    }
+
+    #[test]
+    fn unit_invulnerability_writes_only_target_boolean_bytes() {
+        let directory = default_game_data_directory();
+        let Ok(mut resources) = fs::read(directory.join(RESOURCES_ASSETS)) else { return; };
+        let global = fs::read(directory.join(GLOBAL_MANAGERS_ASSETS)).unwrap();
+        let script = find_mono_script_path(&global, "Damageable").unwrap();
+        let original = resources.clone();
+        let mut allowed = Vec::new();
+        for names in [&ARCHER_NAMES[..], &BUILDER_NAMES[..], &FARMER_NAMES[..]] {
+            let offsets = unit_invulnerability_offsets(&resources, script, names).unwrap();
+            allowed.extend_from_slice(&offsets);
+            write_unit_invulnerability(&mut resources, script, names, Some(true)).unwrap();
+            assert_eq!(read_unit_invulnerability(&resources, script, names).unwrap(), Some(true));
+            write_unit_invulnerability(&mut resources, script, names, Some(false)).unwrap();
+            assert_eq!(read_unit_invulnerability(&resources, script, names).unwrap(), Some(false));
+            resources[offsets[0]] = 1;
+            assert_eq!(read_unit_invulnerability(&resources, script, names).unwrap(), None);
+            let mixed = resources.clone();
+            write_unit_invulnerability(&mut resources, script, names, None).unwrap();
+            assert_eq!(resources, mixed);
+        }
+        assert!(resources.iter().zip(&original).enumerate()
+            .all(|(i,(a,b))| a==b || allowed.contains(&i)));
+        // Bad booleans are rejected, not silently interpreted as enabled.
+        resources[allowed[0]] = 2;
+        assert!(read_unit_invulnerability(&resources, script, &ARCHER_NAMES).is_err());
     }
 
     #[test]
@@ -2842,6 +3003,7 @@ pub fn run() {
             load_save_file,
             save_save_file,
             select_save_file,
+            reset_unit_damageable_overrides,
             load_game_assets,
             select_game_data_directory,
             apply_game_assets,

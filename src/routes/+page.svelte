@@ -84,6 +84,9 @@
     playerWalletCapacity: number;
     knightWalletPayTaxesAbove: number;
     knightCoinDropProbability: number;
+    archerInvulnerable: boolean | null;
+    builderInvulnerable: boolean | null;
+    farmerInvulnerable: boolean | null;
     bagScale: number;
   }
 
@@ -132,6 +135,8 @@
   let warhorseColliderError = $state<string | null>(null);
   let warhorseColliderStatus = $state<string | null>(null);
   let resetSaveWalls = $state(true);
+  let unitResetStatus = $state<string | null>(null);
+  let unitResetError = $state<string | null>(null);
   let targetMode = $state<"campaign" | "challenge">("campaign");
   let selectedChallenge = $state(1); // Default to Plague Island if available
   let selectedCampaign = $state(0);
@@ -1641,6 +1646,24 @@
     }
   }
 
+  async function resetUnitDamageable() {
+    if (!data || !filePath || assetBusy) return;
+    assetBusy = true;
+    unitResetStatus = null;
+    unitResetError = null;
+    try {
+      const response = await invoke<{data: JSONValue; clearedUnits: number}>("reset_unit_damageable_overrides", {data});
+      data = response.data;
+      unitResetStatus = `Removed saved Damageable overrides from ${response.clearedUnits} units in the open save. Not written to disk yet: click Back, then Save to create a backup and write it.`;
+    } catch (error) { unitResetError = String(error); }
+    finally { assetBusy = false; }
+  }
+
+  function updateAssetBoolean(key: 'archerInvulnerable' | 'builderInvulnerable' | 'farmerInvulnerable', event: Event) {
+    if (!assetSettings) return;
+    assetSettings = {...assetSettings, [key]: (event.currentTarget as HTMLInputElement).checked};
+  }
+
   function updateAssetNumber(key: keyof AssetSettings, event: Event) {
     if (!assetSettings) return;
     const value = Number((event.currentTarget as HTMLInputElement).value);
@@ -1766,6 +1789,26 @@
               <label>Run speed<input type="number" min="0" step="0.05" value={assetSettings.builderRunSpeed} oninput={(e) => updateAssetNumber('builderRunSpeed', e)} /></label>
               <label>Work time (seconds)<input type="number" min="0" step="0.05" value={assetSettings.builderWorkTime} oninput={(e) => updateAssetNumber('builderWorkTime', e)} /></label>
               <p class="muted">Applied to regular and Norse Lands builders. Lower work time means faster building and chopping.</p>
+            </section>
+
+            <section class="card asset-card">
+              <h2>Unit damage protection</h2>
+              <label class="asset-checkbox-label"><input type="checkbox" checked={assetSettings.archerInvulnerable === true} indeterminate={assetSettings.archerInvulnerable === null} onchange={(e) => updateAssetBoolean('archerInvulnerable', e)} /><span>Archer — initially invulnerable</span></label>
+              <label class="asset-checkbox-label"><input type="checkbox" checked={assetSettings.builderInvulnerable === true} indeterminate={assetSettings.builderInvulnerable === null} onchange={(e) => updateAssetBoolean('builderInvulnerable', e)} /><span>Builder — initially invulnerable</span></label>
+              <label class="asset-checkbox-label"><input type="checkbox" checked={assetSettings.farmerInvulnerable === true} indeterminate={assetSettings.farmerInvulnerable === null} onchange={(e) => updateAssetBoolean('farmerInvulnerable', e)} /><span>Farmer — initially invulnerable</span></label>
+              <p class="muted">Apply writes Damageable.isInvulnerableInitially to regular and Norse Lands prefabs, including Knight squad archers. Mixed checkboxes preserve differing variants until changed. Does not change HP, alwaysAttackable, or Pikemen. Greed may ignore invulnerable units; buffs/scripts can change invulnerability.</p>
+              <h3>Existing units in save</h3>
+              <p class="muted">After applying assets, reset saved Damageable overrides so existing units can use prefab defaults on reload. This also resets their saved HP. Targets all Archers, Builders and Farmers across Campaigns and Challenges in the open save; walls, enemies, Knights and Pikemen are untouched.</p>
+              {#if filePath && data}
+                <p class="muted">Open save: <code>{filePath}</code></p>
+                <button type="button" onclick={resetUnitDamageable} disabled={assetBusy}>Reset saved Damageable — Archer, Builder, Farmer</button>
+                <p class="muted">This button changes only the open editor data. Click Back, then Save to write the save file with an automatic backup. Asset Apply/Restore does not write or undo this save edit.</p>
+              {:else}
+                <p class="muted">Open global-v35 in the save editor first, then return here to reset existing units.</p>
+                <button type="button" onclick={selectFile} disabled={isLoading || assetBusy}>Open global-v35</button>
+              {/if}
+              {#if unitResetStatus}<p class="status success">{unitResetStatus}</p>{/if}
+              {#if unitResetError}<p class="status error">{unitResetError}</p>{/if}
             </section>
 
             <section class="card asset-card">
@@ -1898,6 +1941,7 @@
       <div class="header-top">
         <h1>{t.header.title}</h1>
         <div class="header-actions">
+          <button onclick={() => openAssetEditor(false)} disabled={isLoading || assetBusy}>Edit Game Assets</button>
           <button onclick={reloadFile} disabled={isLoading} title="Reload current save file">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M14 8C14 11.3137 11.3137 14 8 14C4.68629 14 2 11.3137 2 8C2 4.68629 4.68629 2 8 2C9.86384 2 11.5289 2.87401 12.6 4.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
