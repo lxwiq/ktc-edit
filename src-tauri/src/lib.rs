@@ -2697,6 +2697,27 @@ mod tests {
     }
 
     #[test]
+    fn reset_real_save_copy_roundtrip() {
+        let Some(source) = default_save_file_path() else { return; };
+        let dir = tempdir().unwrap();
+        let path = dir.path().join(SAVE_FILENAME);
+        fs::copy(source, &path).unwrap();
+        let loaded = read_save(&path);
+        let encoded = serde_json::to_vec(&loaded).unwrap();
+        let decoded: Value = serde_json::from_slice(&encoded).unwrap();
+        fn difference(a: &Value, b: &Value, path: String) {
+            if a == b { return; }
+            match (a,b) {
+                (Value::Object(a),Value::Object(b)) => for (k,v) in a { difference(v,&b[k],format!("{path}.{k}")); },
+                (Value::Array(a),Value::Array(b)) => for (i,v) in a.iter().enumerate() { difference(v,&b[i],format!("{path}[{i}]")); },
+                _ => panic!("JSON roundtrip difference at {path}: {a} != {b}"),
+            }
+        }
+        difference(&loaded,&decoded,"$".into());
+        reset_unit_damageable_file(&path, None).unwrap();
+    }
+
+    #[test]
     fn negative_run_stamina_rates_are_allowed() {
         let dir = default_game_data_directory();
         if !dir.join(RESOURCES_ASSETS).exists() {
