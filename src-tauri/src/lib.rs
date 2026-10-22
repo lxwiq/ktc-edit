@@ -1641,9 +1641,15 @@ fn unit_invulnerability_offsets(
         let name_len = read_int(resources, start + 28)?;
         if !(0..=1024).contains(&name_len) { return Err("Invalid component name length".into()); }
         let payload = (32 + name_len as usize + 3) & !3;
-        // Damageable serialized layout: isInvulnerableInitially is payload+80.
-        // Account for variable MonoBehaviour names instead of assuming +124.
-        let relative = payload + 80;
+        // Unity aligns each serialized bool here to four bytes. The five
+        // flags start at +76: lowPriority, alwaysAttackable, persistOnDeath,
+        // ignoredWhenInvulnerable, isInvulnerableInitially (+92, NOT +80).
+        // The preceding biome sound array contributes 12 bytes per entry.
+        let sound_count = read_int(resources, start + payload + 32)?;
+        if !(0..=1024).contains(&sound_count) {
+            return Err("Invalid Damageable biome sound array length".into());
+        }
+        let relative = payload + 92 + sound_count as usize * 12;
         let offset = resolve_component_offset(resources, script, name, relative)?;
         if resources[offset] > 1 { return Err(format!("Invalid Damageable boolean on {name}")); }
         Ok(offset)
@@ -2638,6 +2644,16 @@ mod tests {
         let mut allowed = Vec::new();
         for names in [&ARCHER_NAMES[..], &BUILDER_NAMES[..], &FARMER_NAMES[..]] {
             let offsets = unit_invulnerability_offsets(&resources, script, names).unwrap();
+            // Independently check the field's aligned position, rather than
+            // accepting any offset returned by the function under test.
+            for (name, offset) in names.iter().zip(&offsets) {
+                let start = resolve_component_offset(&resources, script, name, 0).unwrap();
+                let len = read_int(&resources, start + 28).unwrap() as usize;
+                let payload = (32 + len + 3) & !3;
+                let sounds = read_int(&resources, start + payload + 32).unwrap() as usize;
+                assert_eq!(*offset, start + payload + 92 + sounds * 12);
+                assert_ne!(*offset, start + payload + 80 + sounds * 12);
+            }
             allowed.extend_from_slice(&offsets);
             write_unit_invulnerability(&mut resources, script, names, Some(true)).unwrap();
             assert_eq!(read_unit_invulnerability(&resources, script, names).unwrap(), Some(true));
