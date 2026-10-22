@@ -563,11 +563,6 @@ const archerTemplate: MutableJSONObject = {
       data: "{\"tower\":{\"linkedObjectID\":\"\"},\"knight\":{\"linkedObjectID\":\"\"},\"guardSide\":1,\"guardDepth\":0,\"desiredAttackMode\":0,\"despawnOnLoad\":false}",
     },
     {
-      name: "Damageable",
-      type: "DamageableData",
-      data: "{\"hitPoints\":0,\"invulnerable\":false}",
-    },
-    {
       name: "GenderAnimatorSelector",
       type: "GenderSelectorSaveData",
       data: "{\"IsFemale\":false}",
@@ -616,11 +611,6 @@ const workerTemplate: MutableJSONObject = {
       name: "Worker",
       type: "WorkerData",
       data: "{\"despawnOnLoad\":false}",
-    },
-    {
-      name: "Damageable",
-      type: "DamageableData",
-      data: "{\"hitPoints\":0,\"invulnerable\":false}",
     },
     {
       name: "GenderAnimatorSelector",
@@ -726,11 +716,6 @@ const farmerTemplate: MutableJSONObject = {
       name: "Farmer",
       type: "FarmerData",
       data: "{\"despawnOnLoad\":false}",
-    },
-    {
-      name: "Damageable",
-      type: "DamageableData",
-      data: "{\"hitPoints\":0,\"invulnerable\":false}",
     },
     {
       name: "GenderAnimatorSelector",
@@ -866,6 +851,9 @@ function spawnUnitsByConfig(
 
   for (let i = 0; i < count; i += 1) {
     const clone = cloneJson(template as JSONValue) as MutableJSONObject;
+    if (["Worker", "Archer", "Farmer"].includes(config.duplicateName)) {
+      usePrefabDamageableDefaults(clone);
+    }
     clone.name = `${config.namePrefix} ${randomId()}`;
     clone.uniqueID = randomId();
     clone.netID = nextNetId++;
@@ -974,6 +962,7 @@ export function spawnKnights(doc: JSONValue, options: SpawnKnightsOptions): JSON
     if (withArchers) {
       for (let a = 0; a < 4; a += 1) {
         const archer = cloneJson(archerBase as JSONValue) as MutableJSONObject;
+        usePrefabDamageableDefaults(archer);
         archer.uniqueID = randomId();
         archer.name = `Archer Knight Squad [${k + 1}-${a + 1}]`;
         archer.netID = nextNetId++;
@@ -999,6 +988,15 @@ export function spawnKnights(doc: JSONValue, options: SpawnKnightsOptions): JSON
   }
 
   return root;
+}
+
+function usePrefabDamageableDefaults(obj: MutableJSONObject): void {
+  // Newly spawned units inherit HP/invulnerability from the asset prefab,
+  // rather than copying another saved unit's current Damageable state.
+  if (Array.isArray(obj.componentData2)) {
+    obj.componentData2 = (obj.componentData2 as MutableJSONObject[])
+      .filter((component) => component.name !== "Damageable");
+  }
 }
 
 function objHasComponent(obj: MutableJSONObject, componentName: string): boolean {
