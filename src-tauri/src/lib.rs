@@ -1636,7 +1636,8 @@ fn primary_component_value(
 fn unit_invulnerability_offsets(
     resources: &[u8], script: i64, names: &[&str],
 ) -> Result<Vec<usize>, String> {
-    names.iter().map(|name| {
+    let mut offsets = Vec::with_capacity(names.len() * 2);
+    for name in names {
         let start = resolve_component_offset(resources, script, name, 0)?;
         let name_len = read_int(resources, start + 28)?;
         if !(0..=1024).contains(&name_len) { return Err("Invalid component name length".into()); }
@@ -1649,11 +1650,14 @@ fn unit_invulnerability_offsets(
         if !(0..=1024).contains(&sound_count) {
             return Err("Invalid Damageable biome sound array length".into());
         }
-        let relative = payload + 92 + sound_count as usize * 12;
-        let offset = resolve_component_offset(resources, script, name, relative)?;
-        if resources[offset] > 1 { return Err(format!("Invalid Damageable boolean on {name}")); }
-        Ok(offset)
-    }).collect()
+        for field in [80, 92] {
+            let relative = payload + field + sound_count as usize * 12;
+            let offset = resolve_component_offset(resources, script, name, relative)?;
+            if resources[offset] > 1 { return Err(format!("Invalid Damageable boolean on {name}")); }
+            offsets.push(offset);
+        }
+    }
+    Ok(offsets)
 }
 
 fn read_unit_invulnerability(resources: &[u8], script: i64, names: &[&str]) -> Result<Option<bool>, String> {
@@ -2646,18 +2650,24 @@ mod tests {
             let offsets = unit_invulnerability_offsets(&resources, script, names).unwrap();
             // Independently check the field's aligned position, rather than
             // accepting any offset returned by the function under test.
-            for (name, offset) in names.iter().zip(&offsets) {
+            for (name, pair) in names.iter().zip(offsets.chunks_exact(2)) {
                 let start = resolve_component_offset(&resources, script, name, 0).unwrap();
                 let len = read_int(&resources, start + 28).unwrap() as usize;
                 let payload = (32 + len + 3) & !3;
                 let sounds = read_int(&resources, start + payload + 32).unwrap() as usize;
-                assert_eq!(*offset, start + payload + 92 + sounds * 12);
-                assert_ne!(*offset, start + payload + 80 + sounds * 12);
+                assert_eq!(pair[0], start + payload + 80 + sounds * 12);
+                assert_eq!(pair[1], start + payload + 92 + sounds * 12);
             }
             allowed.extend_from_slice(&offsets);
             write_unit_invulnerability(&mut resources, script, names, Some(true)).unwrap();
+            for pair in offsets.chunks_exact(2) {
+                assert_eq!((resources[pair[0]], resources[pair[1]]), (1, 1));
+            }
             assert_eq!(read_unit_invulnerability(&resources, script, names).unwrap(), Some(true));
             write_unit_invulnerability(&mut resources, script, names, Some(false)).unwrap();
+            for pair in offsets.chunks_exact(2) {
+                assert_eq!((resources[pair[0]], resources[pair[1]]), (0, 0));
+            }
             assert_eq!(read_unit_invulnerability(&resources, script, names).unwrap(), Some(false));
             resources[offsets[0]] = 1;
             assert_eq!(read_unit_invulnerability(&resources, script, names).unwrap(), None);
