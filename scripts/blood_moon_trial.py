@@ -43,9 +43,16 @@ def patch(data):
     if data[location:location+8] != EXPECTED:
         raise ValueError('Unsupported method bytes; refusing to patch')
     out[location:location+8] = PATCH
+    sites = [(0x61220c,0xf9401502),(0x61226c,0xf9400d02),(0x6122b0,0xf9400d02)]
+    allowed = set(range(location,location+8))
+    for rva, expected in sites:
+        at = base+rva
+        assert struct.unpack_from('<I',data,at)[0] == expected
+        assert struct.unpack_from('<I',data,at+4)[0] == 0xaa1403e0
+        struct.pack_into('<I',out,at,0xf9401102)
+        allowed.update(range(at,at+4))
     assert len(out) == len(data)
-    assert out[:location] == data[:location]
-    assert out[location+8:] == data[location+8:]
+    assert all(a==b or i in allowed for i,(a,b) in enumerate(zip(data,out)))
     return bytes(out), location
 
 
