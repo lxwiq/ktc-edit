@@ -1,0 +1,63 @@
+"""Experimental October ARM64 patch; writes a NEW dylib, never the source.
+
+Forces LandData.GetDayTypeForDay to return DayType.bossDay (4).
+This is a static trial, not proof of nightly waves or challenge compatibility.
+No code cave: replace only the first two instructions with mov w0,#4; ret.
+"""
+import argparse
+from pathlib import Path
+import struct
+
+RVA = 0x9A8554
+EXPECTED = bytes.fromhex('ff0301d1 f65701a9')
+PATCH = bytes.fromhex('80008052 c0035fd6')
+
+
+def patch(data):
+    out = bytearray(data)
+    if data[:4] != bytes.fromhex('cafebabe'):
+        raise ValueError('Expected the verified universal Mach-O format')
+    count = struct.unpack_from('>I', data, 4)[0]
+    slices = [struct.unpack_from('>5I', data, 8 + i * 20) for i in range(count)]
+    arm = [s for s in slices if s[0] == 0x100000C]
+    if len(arm) != 1:
+        raise ValueError('Expected exactly one ARM64 slice')
+    _, _, base, size, _ = arm[0]
+    # Resolve RVA through the Mach-O segment table, not an assumed VA=file offset.
+    if struct.unpack_from('<I', data, base)[0] != 0xFEEDFACF:
+        raise ValueError('Expected 64-bit little-endian Mach-O')
+    cursor = base + 32
+    location = None
+    for _ in range(struct.unpack_from('<I', data, base + 16)[0]):
+        cmd, length = struct.unpack_from('<II', data, cursor)
+        if cmd == 0x19:
+            vmaddr, vmsize, fileoff, filesize = struct.unpack_from('<4Q', data, cursor + 24)
+            if vmaddr <= RVA and RVA + 8 <= vmaddr + filesize:
+                location = base + fileoff + RVA - vmaddr
+                initprot = struct.unpack_from('<I', data, cursor + 60)[0]
+                if not initprot & 4:
+                    raise ValueError('Target segment is not executable')
+        cursor += length
+    if location is None or location + 8 > base + size:
+        raise ValueError('Method not mapped into ARM64 file slice')
+    if data[location:location+8] != EXPECTED:
+        raise ValueError('Unsupported method bytes; refusing to patch')
+    out[location:location+8] = PATCH
+    assert len(out) == len(data)
+    assert out[:location] == data[:location]
+    assert out[location+8:] == data[location+8:]
+    return bytes(out), location
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('source', type=Path)
+    parser.add_argument('output', type=Path)
+    args = parser.parse_args()
+    if args.source.resolve() == args.output.resolve():
+        parser.error('Output must be a separate copy')
+    result, offset = patch(args.source.read_bytes())
+    with args.output.open('xb') as f:
+        f.write(result)
+    print(f'Created {args.output}; replaced 8 bytes at file offset {offset:#x}')
+    print('Not installed or signed. Existing schedules may require rebuilding on reload.')
