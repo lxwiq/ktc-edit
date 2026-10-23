@@ -1577,10 +1577,16 @@
     bloodMoonError = null;
     bloodMoonStatus = null;
     try {
-      const response = await invoke<{enabled: boolean; backup: string | null}>("apply_blood_moon", {dataDirectory: assetDirectory, enabled});
+      const response = await invoke<{enabled: boolean; backup: string | null; save_backup: string | null; converted_events: number; added_events: number; editor_data: JSONValue | null}>("apply_blood_moon", {
+        dataDirectory: assetDirectory, enabled, savePath: filePath || null,
+        editorData: data ? JSON.parse(JSON.stringify(data)) : null
+      });
       bloodMoonEnabled = response.enabled;
+      if (response.editor_data) data = response.editor_data;
       bloodMoonStatus = (response.enabled ? "Every-night Blood Moon patch enabled." : "Original day classification restored.") +
-        (response.backup ? ` Backup: ${response.backup}` : " No changes needed.");
+        (response.enabled ? ` Converted ${response.converted_events} pending Regular events; added ${response.added_events} missing-side Boss events.` : " Already-converted save events are not reverted.") +
+        (response.backup ? ` Native backup: ${response.backup}` : "") +
+        (response.save_backup ? ` Save written and verified. Backup: ${response.save_backup}` : " Save unchanged.");
     } catch (error) { bloodMoonError = String(error); }
     finally { assetBusy = false; }
   }
@@ -1788,9 +1794,9 @@
             <section class="card asset-card">
               <h2>Blood Moon — experimental</h2>
               <p class="muted">Current: {!bloodMoonAvailable ? 'Unavailable for this game build' : bloodMoonEnabled ? 'Every day classified as bossDay' : 'Original day schedule'}</p>
-              <button type="button" onclick={() => applyBloodMoon(true)} disabled={assetBusy || !bloodMoonAvailable || bloodMoonEnabled}>Enable every-night Blood Moon</button>
+              <button type="button" onclick={() => applyBloodMoon(true)} disabled={assetBusy || !bloodMoonAvailable}>Enable Blood Moon + saved Boss waves on both sides</button>
               <button type="button" onclick={() => applyBloodMoon(false)} disabled={assetBusy || !bloodMoonAvailable || !bloodMoonEnabled}>Restore original day schedule</button>
-              <p class="muted">Separate from asset Apply. Patches and re-signs the selected game's GameAssembly.dylib, including the Steam installation when selected. Close the game first. Automatic backup; restore preserves other patches. Forces LandData.GetDayTypeForDay to bossDay (4), affecting day classification and wave scheduling. Existing schedules may require reload. Campaign gameplay, challenge compatibility and multiplayer are unverified. Back up your save before testing.</p>
+              <p class="muted">Close the game first. Updates the selected game's dylib and pending Regular waves in the open global-v35 (or the default save). Writes the save directly with backup and verification; no extra Save click. Pending saved Boss waves get both left and right sides, including previously converted Boss events. Reapplying does not duplicate existing sides. Newly generated schedules still follow native side selection; reapply to convert them. Retaliation, weather and challenges are untouched. Waves already spawned are unchanged. Restore only restores native scheduling, not converted save events. Runtime and multiplayer behavior remain unverified.</p>
               {#if bloodMoonStatus}<p class="status success">{bloodMoonStatus}</p>{/if}
               {#if bloodMoonError}<p class="status error">{bloodMoonError}</p>{/if}
             </section>
