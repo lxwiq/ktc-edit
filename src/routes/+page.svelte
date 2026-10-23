@@ -132,6 +132,10 @@
   let coinVisualStatus = $state<string | null>(null);
   let coinVisualError = $state<string | null>(null);
   let campEnabled = $state(false);
+  let bloodMoonEnabled = $state(false);
+  let bloodMoonAvailable = $state(false);
+  let bloodMoonStatus = $state<string | null>(null);
+  let bloodMoonError = $state<string | null>(null);
   let campNeedsUpgrade = $state(false);
   let campAvailable = $state(false);
   let campStatus = $state<string | null>(null);
@@ -1496,6 +1500,14 @@
         coinVisualAvailable = true;
       } catch (error) { coinVisualError = String(error); }
       campAvailable = false;
+      bloodMoonAvailable = false;
+      bloodMoonStatus = null;
+      bloodMoonError = null;
+      try {
+        const result = await invoke<{enabled: boolean}>("load_blood_moon", {dataDirectory: response.dataDirectory});
+        bloodMoonEnabled = result.enabled;
+        bloodMoonAvailable = true;
+      } catch (error) { bloodMoonError = String(error); }
       campStatus = null;
       campError = null;
       try {
@@ -1556,6 +1568,20 @@
       campStatus = (response.enabled ? "Vagrant camps are preserved when the forest disappears." : "Original camp removal restored.") +
         (response.backup ? ` Backup: ${response.backup}` : " No changes needed.");
     } catch (error) { campError = String(error); }
+    finally { assetBusy = false; }
+  }
+
+  async function applyBloodMoon(enabled: boolean) {
+    if (!assetDirectory || !bloodMoonAvailable || assetBusy) return;
+    assetBusy = true;
+    bloodMoonError = null;
+    bloodMoonStatus = null;
+    try {
+      const response = await invoke<{enabled: boolean; backup: string | null}>("apply_blood_moon", {dataDirectory: assetDirectory, enabled});
+      bloodMoonEnabled = response.enabled;
+      bloodMoonStatus = (response.enabled ? "Every-night Blood Moon patch enabled." : "Original day classification restored.") +
+        (response.backup ? ` Backup: ${response.backup}` : " No changes needed.");
+    } catch (error) { bloodMoonError = String(error); }
     finally { assetBusy = false; }
   }
 
@@ -1757,6 +1783,16 @@
               <p class="muted">Separate from asset Apply. Patches and re-signs the selected game's GameAssembly.dylib on supported Apple Silicon builds. Close the game first. Wallet balance and gems are unchanged. Ground coins are not capped. Backups are created automatically.</p>
               {#if coinVisualStatus}<p class="status success">{coinVisualStatus}</p>{/if}
               {#if coinVisualError}<p class="status error">{coinVisualError}</p>{/if}
+            </section>
+
+            <section class="card asset-card">
+              <h2>Blood Moon — experimental</h2>
+              <p class="muted">Current: {!bloodMoonAvailable ? 'Unavailable for this game build' : bloodMoonEnabled ? 'Every day classified as bossDay' : 'Original day schedule'}</p>
+              <button type="button" onclick={() => applyBloodMoon(true)} disabled={assetBusy || !bloodMoonAvailable || bloodMoonEnabled}>Enable every-night Blood Moon</button>
+              <button type="button" onclick={() => applyBloodMoon(false)} disabled={assetBusy || !bloodMoonAvailable || !bloodMoonEnabled}>Restore original day schedule</button>
+              <p class="muted">Separate from asset Apply. Patches and re-signs the selected game's GameAssembly.dylib, including the Steam installation when selected. Close the game first. Automatic backup; restore preserves other patches. Forces LandData.GetDayTypeForDay to bossDay (4), affecting day classification and wave scheduling. Existing schedules may require reload. Campaign gameplay, challenge compatibility and multiplayer are unverified. Back up your save before testing.</p>
+              {#if bloodMoonStatus}<p class="status success">{bloodMoonStatus}</p>{/if}
+              {#if bloodMoonError}<p class="status error">{bloodMoonError}</p>{/if}
             </section>
 
             <section class="card asset-card">

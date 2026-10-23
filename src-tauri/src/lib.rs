@@ -11,6 +11,7 @@ use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 mod camp;
+mod blood_moon;
 mod coin_bag;
 
 const SAVE_FILENAME: &str = "global-v35";
@@ -3268,6 +3269,8 @@ pub fn run() {
             coin_bag::apply_coin_visual_limit,
             camp::load_camp_preservation,
             camp::apply_camp_preservation,
+            blood_moon::load_blood_moon,
+            blood_moon::apply_blood_moon,
             apply_warhorse_collider_limit,
             restore_warhorse_collider_limit
         ])
