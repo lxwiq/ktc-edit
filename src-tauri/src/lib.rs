@@ -196,6 +196,10 @@ const WALL5_STANDARD_HP: [ComponentFloatTarget; 6] =
 const WALL5_NORSELANDS_HP: [ComponentFloatTarget; 2] =
     component_targets(RESOURCES_ASSETS, WALL5_NORSELANDS_NAMES, 44);
 const KNIGHT_WALLET_NAMES: [&str; 3] = ["Knight", "Knight_norselands", "Knight_greece"];
+const PEASANT_WALK_SPEED: [ComponentFloatTarget; 1] =
+    component_targets(RESOURCES_ASSETS, ["Peasant"], 40);
+const PEASANT_RUN_SPEED: [ComponentFloatTarget; 1] =
+    component_targets(RESOURCES_ASSETS, ["Peasant"], 44);
 const KNIGHT_WALK_SPEED: [ComponentFloatTarget; 3] =
     component_targets(RESOURCES_ASSETS, KNIGHT_WALLET_NAMES, 40);
 const KNIGHT_RUN_SPEED: [ComponentFloatTarget; 3] =
@@ -333,6 +337,8 @@ struct AssetSettings {
     wall5_standard_hit_points: i32,
     wall5_norselands_hit_points: i32,
     knight_walk_speed: f32,
+    peasant_walk_speed: f32,
+    peasant_run_speed: f32,
     knight_run_speed: f32,
     knight_retreat_speed: f32,
     knight_wallet_capacity: i32,
@@ -1909,6 +1915,10 @@ fn read_asset_settings(directory: &Path) -> Result<AssetSettings, String> {
         )?,
         knight_walk_speed: consistent_component_value(&resources, &shared,
             find_mono_script_path(&global_managers, "Knight")?, &KNIGHT_WALK_SPEED)?,
+        peasant_walk_speed: consistent_component_value(&resources, &shared,
+            find_mono_script_path(&global_managers, "Peasant")?, &PEASANT_WALK_SPEED)?,
+        peasant_run_speed: consistent_component_value(&resources, &shared,
+            find_mono_script_path(&global_managers, "Peasant")?, &PEASANT_RUN_SPEED)?,
         knight_run_speed: consistent_component_value(&resources, &shared,
             find_mono_script_path(&global_managers, "Knight")?, &KNIGHT_RUN_SPEED)?,
         knight_retreat_speed: consistent_component_value(&resources, &shared,
@@ -2101,6 +2111,8 @@ fn validate_settings(settings: &AssetSettings) -> Result<(), String> {
         settings.builder_run_speed,
         settings.builder_work_time,
         settings.knight_walk_speed,
+        settings.peasant_walk_speed,
+        settings.peasant_run_speed,
         settings.knight_run_speed,
         settings.knight_retreat_speed,
         settings.bag_scale,
@@ -2408,6 +2420,13 @@ fn apply_game_assets(
         settings.wall5_norselands_hit_points,
     )?;
     let knight_script_path = find_mono_script_path(&global_managers, "Knight")?;
+    let peasant_script_path = find_mono_script_path(&global_managers, "Peasant")?;
+    for (targets, value) in [
+        (&PEASANT_WALK_SPEED, settings.peasant_walk_speed),
+        (&PEASANT_RUN_SPEED, settings.peasant_run_speed),
+    ] {
+        write_component_targets(&mut resources, &mut shared, peasant_script_path, targets, value)?;
+    }
     for (targets, value) in [
         (&KNIGHT_WALK_SPEED, settings.knight_walk_speed),
         (&KNIGHT_RUN_SPEED, settings.knight_run_speed),
@@ -2744,6 +2763,37 @@ mod tests {
             let start = resolve_component_offset(&original, script, name, 0).unwrap();
             assert_eq!(&resources[start+40..start+52], &original[start+40..start+52]);
         }
+    }
+
+    #[test]
+    fn peasant_speeds_write_only_two_serialized_floats() {
+        let directory = default_game_data_directory();
+        let Ok(mut resources) = fs::read(directory.join(RESOURCES_ASSETS)) else { return; };
+        let mut shared = fs::read(directory.join(SHARED_ASSETS)).unwrap();
+        let global = fs::read(directory.join(GLOBAL_MANAGERS_ASSETS)).unwrap();
+        let script = find_mono_script_path(&global, "Peasant").unwrap();
+        let start = resolve_component_offset(&resources, script, "Peasant", 0).unwrap();
+        let len = read_int(&resources, start + 28).unwrap();
+        assert_eq!(len, 7); // Peasant: aligned payload begins at +40.
+        let original = resources.clone();
+        let original_shared = shared.clone();
+        for (targets, relative, value) in [
+            (&PEASANT_WALK_SPEED, 40, 2.75),
+            (&PEASANT_RUN_SPEED, 44, 5.25),
+        ] {
+            assert_eq!(targets[0].relative_offset, relative);
+            write_component_targets(&mut resources, &mut shared, script, targets, value).unwrap();
+            assert_eq!(read_float(&resources, start + relative).unwrap(), value);
+            assert_eq!(consistent_component_value(&resources, &shared, script, targets).unwrap(), value);
+        }
+        assert_eq!(shared, original_shared);
+        assert_eq!(&resources[..start+40], &original[..start+40]);
+        assert_eq!(&resources[start+48..], &original[start+48..]);
+        for (targets, relative) in [(&PEASANT_WALK_SPEED, 40), (&PEASANT_RUN_SPEED, 44)] {
+            let value = read_float(&original, start + relative).unwrap();
+            write_component_targets(&mut resources, &mut shared, script, targets, value).unwrap();
+        }
+        assert_eq!(resources, original);
     }
 
     #[test]

@@ -81,6 +81,8 @@
     wall5StandardHitPoints: number;
     wall5NorselandsHitPoints: number;
     knightWalkSpeed: number;
+    peasantWalkSpeed: number;
+    peasantRunSpeed: number;
     knightRunSpeed: number;
     knightRetreatSpeed: number;
     knightWalletCapacity: number;
@@ -1816,6 +1818,13 @@
               <h2>Player Wallet</h2>
               <label>Total capacity<input type="number" min="1" max="1000000" step="1" value={assetSettings.playerWalletCapacity} oninput={(e) => updateAssetNumber('playerWalletCapacity', e)} /></label>
               <p class="muted">Edits Wallet.TotalCapacity on the Player prefab in resources.assets. Current save and runtime state may affect when the change takes effect.</p>
+            </section>
+
+            <section class="card asset-card">
+              <h2>Peasant</h2>
+              <label>Walk speed<input type="number" min="0" step="0.05" value={assetSettings.peasantWalkSpeed} oninput={(e) => updateAssetNumber('peasantWalkSpeed', e)} /></label>
+              <label>Run speed<input type="number" min="0" step="0.05" value={assetSettings.peasantRunSpeed} oninput={(e) => updateAssetNumber('peasantRunSpeed', e)} /></label>
+              <p class="muted">Edits walkSpeed and runSpeed on the Peasant prefab. Other unit prefabs are unchanged.</p>
             </section>
 
             <section class="card asset-card">
