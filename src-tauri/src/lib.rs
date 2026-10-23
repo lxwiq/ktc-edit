@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 mod camp;
 mod blood_moon;
+mod clock_speed;
 mod coin_bag;
 
 const SAVE_FILENAME: &str = "global-v35";
@@ -3271,6 +3272,8 @@ pub fn run() {
             camp::apply_camp_preservation,
             blood_moon::load_blood_moon,
             blood_moon::apply_blood_moon,
+            clock_speed::load_clock_speed,
+            clock_speed::apply_clock_speed,
             apply_warhorse_collider_limit,
             restore_warhorse_collider_limit
         ])

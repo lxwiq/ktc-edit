@@ -136,6 +136,9 @@
   let bloodMoonAvailable = $state(false);
   let bloodMoonStatus = $state<string | null>(null);
   let bloodMoonError = $state<string | null>(null);
+  let clockMultiplier = $state(3);
+  let clockStatus = $state<string | null>(null);
+  let clockError = $state<string | null>(null);
   let campNeedsUpgrade = $state(false);
   let campAvailable = $state(false);
   let campStatus = $state<string | null>(null);
@@ -1591,6 +1594,23 @@
     finally { assetBusy = false; }
   }
 
+  async function applyClockSpeed(multiplier: number) {
+    if (!assetDirectory || assetBusy) return;
+    assetBusy = true; clockStatus = null; clockError = null;
+    try {
+      const response = await invoke<{multiplier: number; native_backup: string | null; save_backup: string | null; updated_directors: number; editor_data: JSONValue | null}>("apply_clock_speed", {
+        dataDirectory: assetDirectory, multiplier, savePath: filePath || null,
+        editorData: data ? JSON.parse(JSON.stringify(data)) : null
+      });
+      clockMultiplier = response.multiplier;
+      if (response.editor_data) data = response.editor_data;
+      clockStatus = `ResumeTime now uses ×${response.multiplier}; updated ${response.updated_directors} saved island clocks.` +
+        (response.native_backup ? ` Dylib backup: ${response.native_backup}` : "") +
+        (response.save_backup ? ` Save backup: ${response.save_backup}` : "");
+    } catch (error) { clockError = String(error); }
+    finally { assetBusy = false; }
+  }
+
   async function applyWarhorseColliderLimit() {
     if (!assetDirectory || warhorseColliderLimit === null) return;
     warhorseColliderError = null;
@@ -1792,11 +1812,23 @@
             </section>
 
             <section class="card asset-card">
+              <h2>Clock speed</h2>
+              <label>Day/night clock multiplier
+                <input type="number" min="0" step="0.5" bind:value={clockMultiplier} disabled={assetBusy} />
+              </label>
+              <button type="button" onclick={() => applyClockSpeed(clockMultiplier)} disabled={assetBusy}>Apply clock speed to dylib + save</button>
+              <button type="button" onclick={() => applyClockSpeed(1)} disabled={assetBusy}>Reset clock speed to ×1</button>
+              <p class="muted">Apple Silicon only; close the game first. Default input ×3 is a requested value, not a live reading. Patches ResumeTime and writes all Campaign/Challenge island clockSpeedModifier values in the open save (or default global-v35), with backups and verification. Does not change unit movement or animation speed. PauseTime still uses zero. Other code such as AdjustTime can still change the multiplier; this is not a permanent override of every clock writer. Reset writes ×1, not the previous save snapshot. Already-running games require restart. Runtime behavior unverified.</p>
+              {#if clockStatus}<p class="status success">{clockStatus}</p>{/if}
+              {#if clockError}<p class="status error">{clockError}</p>{/if}
+            </section>
+
+            <section class="card asset-card">
               <h2>Blood Moon — experimental</h2>
               <p class="muted">Current: {!bloodMoonAvailable ? 'Unavailable for this game build' : bloodMoonEnabled ? 'Every day classified as bossDay' : 'Original day schedule'}</p>
               <button type="button" onclick={() => applyBloodMoon(true)} disabled={assetBusy || !bloodMoonAvailable}>Enable 10 Boss events/day (5 per side)</button>
               <button type="button" onclick={() => applyBloodMoon(false)} disabled={assetBusy || !bloodMoonAvailable || !bloodMoonEnabled}>Restore original day schedule</button>
-              <p class="muted">Close the game first. Patches the selected game's dylib to schedule five Boss events per side every day, including new campaigns and future schedules. Waves may overlap and increase CPU/memory load. Also converts pending saved Regular waves and fills pending Boss schedules to five per side/day in the open global-v35 (or default save); existing excess events are not removed. Reapplying adds nothing once each side has five. Writes with backups and verification. Retaliation and saved weather/challenge events are not edited. Already-spawned waves are unchanged. Restore removes the native repeat hook and its 76-byte cave as well as day/wave/side patches, not converted save events. Runtime and multiplayer behavior remain unverified.</p>
+              <p class="muted">Close the game first. Patches the selected game's dylib to schedule five Boss events per side every day, including new campaigns and future schedules. Failed Boss spawns no longer clear Red Moon while enemies are attacking or retaliation is queued; normal danger/safety cleanup remains intact. Waves may overlap and increase CPU/memory load. Also converts pending saved Regular waves and fills pending Boss schedules to five per side/day in the open global-v35 (or default save); existing excess events are not removed. Reapplying adds nothing once each side has five. Writes with backups and verification. Retaliation and saved weather/challenge events are not edited. Already-spawned waves are unchanged. Restore removes the 76-byte repeat cave, 28-byte clear guard, both hooks and day/wave/side patches, not converted save events. Runtime and multiplayer behavior remain unverified.</p>
               {#if bloodMoonStatus}<p class="status success">{bloodMoonStatus}</p>{/if}
               {#if bloodMoonError}<p class="status error">{bloodMoonError}</p>{/if}
             </section>

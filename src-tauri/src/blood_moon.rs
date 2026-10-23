@@ -21,6 +21,30 @@ const REPEAT_HOOK: usize = 0x612d24;
 const REPEAT_TARGET: usize = 0x613034;
 const REPEAT_CAVE: usize = 0x44ce080;
 const REPEAT_LEN: usize = 76;
+const CLEAR_HOOK: usize = 0x633f84;
+const CLEAR_TARGET: usize = 0x633464;
+const CLEAR_CAVE: usize = 0x44ce100;
+const CLEAR_LEN: usize = 28;
+fn clear_guard() -> Vec<u8> {
+    // x0 is EnemyManager. Return without clearing if attacking or queue > 0.
+    // Tail branch preserves the original caller's LR when clearing is allowed.
+    [0x3943d008,0x350000a8,0xb940ec08,0x7100011f,0x5400004c,
+     bl(CLEAR_CAVE+20,CLEAR_TARGET)&0x7fffffff,0xd65f03c0]
+    .into_iter().flat_map(u32::to_le_bytes).collect()
+}
+fn clear_sites(b: &[u8], method:usize) -> Result<(usize,usize,bool),String> {
+    let base=method.checked_sub(RVA).ok_or("Invalid ARM64 base")?;
+    let hook=base+CLEAR_HOOK;let cave=base+CLEAR_CAVE;
+    let word=u32::from_le_bytes(b.get(hook..hook+4).ok_or("Truncated clear hook")?.try_into().unwrap());
+    if b.get(hook-4..hook)!=Some(0xaa1303e0u32.to_le_bytes().as_slice()) ||
+        b.get(hook+4..hook+8)!=Some(0xf9400300u32.to_le_bytes().as_slice()) {
+        return Err("Unsupported failed-Boss clear context".into());
+    }
+    let code=b.get(cave..cave+CLEAR_LEN).ok_or("Truncated clear guard cave")?;
+    if word==bl(CLEAR_HOOK,CLEAR_TARGET) && code.iter().all(|v|*v==0) {return Ok((hook,cave,false));}
+    if word==bl(CLEAR_HOOK,CLEAR_CAVE) && code==clear_guard() {return Ok((hook,cave,true));}
+    Err("Occupied clear guard cave or unsupported clear hook".into())
+}
 fn bl(from: usize, to: usize) -> u32 {
     0x94000000 | (((to as i64-from as i64)/4) as u32 & 0x3ffffff)
 }
@@ -42,7 +66,7 @@ fn repeat_sites(b: &[u8], method: usize) -> Result<(usize,usize,bool),String> {
         if cmd==25 && b.get(cursor+8..cursor+14)==Some(b"__TEXT") {
             let u64at=|p| -> Result<u64,String> { Ok(u64::from_le_bytes(b.get(p..p+8).ok_or("Truncated segment")?.try_into().unwrap())) };
             padding=u64at(cursor+24)?==0 && u64at(cursor+40)?==0 &&
-                u64at(cursor+48)? >= (REPEAT_CAVE+REPEAT_LEN) as u64 && read32(cursor+60)? & 4 != 0;
+                u64at(cursor+48)? >= (CLEAR_CAVE+CLEAR_LEN) as u64 && read32(cursor+60)? & 4 != 0;
             let sections=read32(cursor+64)? as usize;
             if 72+sections*80>len { return Err("Invalid section table".into()); }
             for i in 0..sections {
@@ -195,13 +219,15 @@ fn state(b: &[u8]) -> Result<bool,String> {
     let sites = wave_sites(b,at)?;
     let side = side_site(b,at)?;
     let (_,_,repeated)=repeat_sites(b,at)?;
-    Ok(b[at..at+8] == ENABLED && sites.iter().all(|p| b[*p..*p+4] == BOSS_LOAD.to_le_bytes()) && b[side..side+4] == SIDE_ENABLED.to_le_bytes() && repeated)
+    let (_,_,guarded)=clear_sites(b,at)?;
+    Ok(b[at..at+8] == ENABLED && sites.iter().all(|p| b[*p..*p+4] == BOSS_LOAD.to_le_bytes()) && b[side..side+4] == SIDE_ENABLED.to_le_bytes() && repeated && guarded)
 }
 fn patch(b: &mut [u8], enabled: bool) -> Result<(),String> {
     let at = location(b)?;
     let sites = wave_sites(b,at)?;
     let side = side_site(b,at)?;
     let (hook,cave,_)=repeat_sites(b,at)?;
+    let (clear_hook,clear_cave,_)=clear_sites(b,at)?;
     b[at..at+8].copy_from_slice(if enabled { &ENABLED } else { &ORIGINAL });
     for ((_, original), at) in WAVE_SITES.iter().zip(sites) {
         b[at..at+4].copy_from_slice(&if enabled { BOSS_LOAD } else { *original }.to_le_bytes());
@@ -209,6 +235,8 @@ fn patch(b: &mut [u8], enabled: bool) -> Result<(),String> {
     b[side..side+4].copy_from_slice(&if enabled { SIDE_ENABLED } else { SIDE_ORIGINAL }.to_le_bytes());
     b[hook..hook+4].copy_from_slice(&bl(REPEAT_HOOK,if enabled {REPEAT_CAVE} else {REPEAT_TARGET}).to_le_bytes());
     b[cave..cave+REPEAT_LEN].copy_from_slice(&if enabled {repeat_code()} else {vec![0;REPEAT_LEN]});
+    b[clear_hook..clear_hook+4].copy_from_slice(&bl(CLEAR_HOOK,if enabled {CLEAR_CAVE} else {CLEAR_TARGET}).to_le_bytes());
+    b[clear_cave..clear_cave+CLEAR_LEN].copy_from_slice(&if enabled {clear_guard()} else {vec![0;CLEAR_LEN]});
     Ok(())
 }
 #[tauri::command]
@@ -284,6 +312,28 @@ pub fn apply_blood_moon(data_directory: String, enabled: bool, save_path: Option
 mod tests {
     use super::*;
     #[test]
+    fn clear_guard_instruction_paths() {
+        let words:Vec<u32>=clear_guard().chunks_exact(4).map(|c|u32::from_le_bytes(c.try_into().unwrap())).collect();
+        for attacking in [false,true] {for queued in [-1,0,1,5] {
+            let mut pc=0usize;let mut w8=0i32;let mut positive=false;let cleared;
+            loop {match words[pc/4] {
+                0x3943d008 => {w8=attacking as i32;pc+=4;},
+                0x350000a8 => {pc=if w8!=0 {24} else {pc+4};},
+                0xb940ec08 => {w8=queued;pc+=4;},
+                0x7100011f => {positive=w8>0;pc+=4;},
+                0x5400004c => {pc=if positive {24} else {pc+4};},
+                0xd65f03c0 => {cleared=false;break;},
+                word if word>>26==5 => {
+                    let delta=(((word&0x3ffffff) as i32)<<6)>>4;
+                    assert_eq!((CLEAR_CAVE+pc) as i64+delta as i64,CLEAR_TARGET as i64);
+                    cleared=true;break;
+                },
+                _=>panic!("Unexpected guard instruction"),
+            }}
+            assert_eq!(cleared,!attacking && queued<=0);
+        }}
+    }
+    #[test]
     fn native_side_override_upgrades_legacy_and_restores() {
         let Ok(p) = game_assembly_path(&default_game_data_directory()) else { return; };
         let mut b = fs::read(p).unwrap();
@@ -302,6 +352,14 @@ mod tests {
         assert!(!repeated);
         assert_eq!(&b[hook..hook+4],&bl(REPEAT_HOOK,REPEAT_TARGET).to_le_bytes());
         assert!(b[cave..cave+REPEAT_LEN].iter().all(|v|*v==0));
+        let (clear_hook,clear_cave,guarded)=clear_sites(&b,at).unwrap();
+        assert!(!guarded);
+        assert_eq!(&b[clear_hook..clear_hook+4],&bl(CLEAR_HOOK,CLEAR_TARGET).to_le_bytes());
+        assert!(b[clear_cave..clear_cave+CLEAR_LEN].iter().all(|v|*v==0));
+        b[clear_cave]=1;
+        let occupied_clear=b.clone();
+        assert!(patch(&mut b,true).is_err());assert!(b==occupied_clear);
+        b[clear_cave]=0;
         b[cave]=1;
         let occupied=b.clone();
         assert!(patch(&mut b,true).is_err());
@@ -370,17 +428,20 @@ mod tests {
         sites.push(side_site(&b,at).unwrap());
         let (hook,cave,_)=repeat_sites(&b,at).unwrap();
         sites.push(hook);
+        let (clear_hook,clear_cave,_)=clear_sites(&b,at).unwrap();
+        sites.push(clear_hook);
         for enabled in [true,false] {
             patch(&mut b,enabled).unwrap();
             assert_eq!(state(&b).unwrap(),enabled);
             assert!(b.iter().zip(&original).enumerate().all(|(i,(x,y))|
-                x==y || (at..at+8).contains(&i) || (cave..cave+REPEAT_LEN).contains(&i) || sites.iter().any(|p| (*p..*p+4).contains(&i))));
+                x==y || (at..at+8).contains(&i) || (cave..cave+REPEAT_LEN).contains(&i) || (clear_cave..clear_cave+CLEAR_LEN).contains(&i) || sites.iter().any(|p| (*p..*p+4).contains(&i))));
         }
         // A previously enabled v1 has only the day override, not all selectors.
         // Restore the exact input bytes rather than assuming a canonical state.
         b[at..at+8].copy_from_slice(&original[at..at+8]);
         for p in sites { b[p..p+4].copy_from_slice(&original[p..p+4]); }
         b[cave..cave+REPEAT_LEN].copy_from_slice(&original[cave..cave+REPEAT_LEN]);
+        b[clear_cave..clear_cave+CLEAR_LEN].copy_from_slice(&original[clear_cave..clear_cave+CLEAR_LEN]);
         assert!(b == original, "Roundtrip changed bytes outside patch sites");
         b[at+8] ^= 1;
         assert!(patch(&mut b,true).is_err());
