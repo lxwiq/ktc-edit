@@ -2,7 +2,7 @@
 
 Forces LandData.GetDayTypeForDay to return DayType.bossDay (4).
 This is a static trial, not proof of nightly waves or challenge compatibility.
-No code cave: replace only the first two instructions with mov w0,#4; ret.
+No code cave: guarded day, wave-selector and both-sides instruction replacements.
 """
 import argparse
 from pathlib import Path
@@ -51,6 +51,11 @@ def patch(data):
         assert struct.unpack_from('<I',data,at+4)[0] == 0xaa1403e0
         struct.pack_into('<I',out,at,0xf9401102)
         allowed.update(range(at,at+4))
+    at = base + 0x613064
+    if struct.unpack_from('<I', data, at)[0] != 0x3941b03a or struct.unpack_from('<I', data, at+4)[0] != 0xd0022b99:
+        raise ValueError('Unsupported ScheduleWave side selector')
+    struct.pack_into('<I',out,at,0x5280003a)
+    allowed.update(range(at,at+4))
     assert len(out) == len(data)
     assert all(a==b or i in allowed for i,(a,b) in enumerate(zip(data,out)))
     return bytes(out), location
@@ -66,5 +71,5 @@ if __name__ == '__main__':
     result, offset = patch(args.source.read_bytes())
     with args.output.open('xb') as f:
         f.write(result)
-    print(f'Created {args.output}; replaced 8 bytes at file offset {offset:#x}')
-    print('Not installed or signed. Existing schedules may require rebuilding on reload.')
+    print(f'Created {args.output}; patched 24 bytes across five guarded sites; day method at {offset:#x}')
+    print('Not installed or signed. Existing saved schedules need the editor conversion.')

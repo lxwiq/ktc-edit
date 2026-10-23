@@ -1794,9 +1794,9 @@
             <section class="card asset-card">
               <h2>Blood Moon — experimental</h2>
               <p class="muted">Current: {!bloodMoonAvailable ? 'Unavailable for this game build' : bloodMoonEnabled ? 'Every day classified as bossDay' : 'Original day schedule'}</p>
-              <button type="button" onclick={() => applyBloodMoon(true)} disabled={assetBusy || !bloodMoonAvailable}>Enable Blood Moon + saved Boss waves on both sides</button>
+              <button type="button" onclick={() => applyBloodMoon(true)} disabled={assetBusy || !bloodMoonAvailable}>Enable Blood Moon on both sides</button>
               <button type="button" onclick={() => applyBloodMoon(false)} disabled={assetBusy || !bloodMoonAvailable || !bloodMoonEnabled}>Restore original day schedule</button>
-              <p class="muted">Close the game first. Updates the selected game's dylib and pending Regular waves in the open global-v35 (or the default save). Writes the save directly with backup and verification; no extra Save click. Pending saved Boss waves get both left and right sides, including previously converted Boss events. Reapplying does not duplicate existing sides. Newly generated schedules still follow native side selection; reapply to convert them. Retaliation, weather and challenges are untouched. Waves already spawned are unchanged. Restore only restores native scheduling, not converted save events. Runtime and multiplayer behavior remain unverified.</p>
+              <p class="muted">Close the game first. Patches the selected game's dylib to classify days as Boss and schedule waves on both sides, including newly generated schedules and new campaigns. Also converts pending saved Regular waves to Boss and fills missing sides in the open global-v35 (or default save). Reapplying does not duplicate existing sides. Writes directly with backups and verification. Retaliation and saved weather/challenge events are not edited. Already-spawned waves are unchanged. Restore restores native day, wave and side selection, not converted save events. Runtime and multiplayer behavior remain unverified.</p>
               {#if bloodMoonStatus}<p class="status success">{bloodMoonStatus}</p>{/if}
               {#if bloodMoonError}<p class="status error">{bloodMoonError}</p>{/if}
             </section>

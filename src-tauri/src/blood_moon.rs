@@ -12,6 +12,22 @@ const WAVE_SITES: [(usize, u32); 3] = [
     (0x6122b0, 0xf9400d02),
 ];
 const BOSS_LOAD: u32 = 0xf9401102;
+// ScheduleWave reads Wave's both-sides byte into w26. Keep the existing
+// two-event implementation, but force its local flag on while enabled.
+const SIDE_RVA: usize = 0x613064;
+const SIDE_ORIGINAL: u32 = 0x3941b03a; // ldrb w26,[x1,#0x6c]
+const SIDE_ENABLED: u32 = 0x5280003a; // mov w26,#1
+
+fn side_site(b: &[u8], method: usize) -> Result<usize,String> {
+    let at = method.checked_sub(RVA).ok_or("Invalid ARM64 base")? + SIDE_RVA;
+    let raw: [u8;4] = b.get(at..at+4).ok_or("Truncated wave side selector")?.try_into().unwrap();
+    if ![SIDE_ORIGINAL,SIDE_ENABLED].contains(&u32::from_le_bytes(raw)) ||
+        b.get(at-12..at) != Some([0x08,0x40,0x20,0x1e,0xf4,0x03,0x01,0xaa,0xf3,0x03,0x00,0xaa].as_slice()) ||
+        b.get(at+4..at+8) != Some(0xd0022b99u32.to_le_bytes().as_slice()) {
+        return Err("Unsupported ScheduleWave side selector/context".into());
+    }
+    Ok(at)
+}
 
 fn wave_sites(b: &[u8], method: usize) -> Result<Vec<usize>, String> {
     let base = method.checked_sub(RVA).ok_or("Invalid ARM64 base")?;
@@ -133,15 +149,18 @@ fn location(b: &[u8]) -> Result<usize,String> {
 fn state(b: &[u8]) -> Result<bool,String> {
     let at = location(b)?;
     let sites = wave_sites(b,at)?;
-    Ok(b[at..at+8] == ENABLED && sites.iter().all(|p| b[*p..*p+4] == BOSS_LOAD.to_le_bytes()))
+    let side = side_site(b,at)?;
+    Ok(b[at..at+8] == ENABLED && sites.iter().all(|p| b[*p..*p+4] == BOSS_LOAD.to_le_bytes()) && b[side..side+4] == SIDE_ENABLED.to_le_bytes())
 }
 fn patch(b: &mut [u8], enabled: bool) -> Result<(),String> {
     let at = location(b)?;
     let sites = wave_sites(b,at)?;
+    let side = side_site(b,at)?;
     b[at..at+8].copy_from_slice(if enabled { &ENABLED } else { &ORIGINAL });
     for ((_, original), at) in WAVE_SITES.iter().zip(sites) {
         b[at..at+4].copy_from_slice(&if enabled { BOSS_LOAD } else { *original }.to_le_bytes());
     }
+    b[side..side+4].copy_from_slice(&if enabled { SIDE_ENABLED } else { SIDE_ORIGINAL }.to_le_bytes());
     Ok(())
 }
 #[tauri::command]
@@ -217,6 +236,27 @@ pub fn apply_blood_moon(data_directory: String, enabled: bool, save_path: Option
 mod tests {
     use super::*;
     #[test]
+    fn native_side_override_upgrades_legacy_and_restores() {
+        let Ok(p) = game_assembly_path(&default_game_data_directory()) else { return; };
+        let mut b = fs::read(p).unwrap();
+        let at = location(&b).unwrap();
+        let side = side_site(&b,at).unwrap();
+        patch(&mut b,true).unwrap();
+        // Emulate the previous patch: Boss day/waves enabled, native side flag.
+        b[side..side+4].copy_from_slice(&SIDE_ORIGINAL.to_le_bytes());
+        assert!(!state(&b).unwrap());
+        patch(&mut b,true).unwrap();
+        assert_eq!(&b[side..side+4], &SIDE_ENABLED.to_le_bytes());
+        assert!(state(&b).unwrap());
+        patch(&mut b,false).unwrap();
+        assert_eq!(&b[side..side+4], &SIDE_ORIGINAL.to_le_bytes());
+        // A mismatched side context must reject before modifying any bytes.
+        b[side+4] ^= 1;
+        let snapshot = b.clone();
+        assert!(patch(&mut b,true).is_err());
+        assert!(b == snapshot);
+    }
+    #[test]
     fn existing_boss_gets_missing_side_without_duplicates() {
         let director = serde_json::json!({"daysInReign":10,"currentTime":12,"events":[
             {"type":2,"startDay":10,"startTime":22,"waveName":"Boss","side":1},
@@ -268,7 +308,8 @@ mod tests {
         let mut b = original.clone();
         state(&b).unwrap();
         let at = location(&b).unwrap();
-        let sites = wave_sites(&b,at).unwrap();
+        let mut sites = wave_sites(&b,at).unwrap();
+        sites.push(side_site(&b,at).unwrap());
         for enabled in [true,false] {
             patch(&mut b,enabled).unwrap();
             assert_eq!(state(&b).unwrap(),enabled);
