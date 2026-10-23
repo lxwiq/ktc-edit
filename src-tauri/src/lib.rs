@@ -196,6 +196,12 @@ const WALL5_STANDARD_HP: [ComponentFloatTarget; 6] =
 const WALL5_NORSELANDS_HP: [ComponentFloatTarget; 2] =
     component_targets(RESOURCES_ASSETS, WALL5_NORSELANDS_NAMES, 44);
 const KNIGHT_WALLET_NAMES: [&str; 3] = ["Knight", "Knight_norselands", "Knight_greece"];
+const KNIGHT_WALK_SPEED: [ComponentFloatTarget; 3] =
+    component_targets(RESOURCES_ASSETS, KNIGHT_WALLET_NAMES, 40);
+const KNIGHT_RUN_SPEED: [ComponentFloatTarget; 3] =
+    component_targets(RESOURCES_ASSETS, KNIGHT_WALLET_NAMES, 44);
+const KNIGHT_RETREAT_SPEED: [ComponentFloatTarget; 3] =
+    component_targets(RESOURCES_ASSETS, KNIGHT_WALLET_NAMES, 48);
 const KNIGHT_COIN_DROP_PROBABILITY: [ComponentFloatTarget; 3] =
     component_targets(RESOURCES_ASSETS, KNIGHT_WALLET_NAMES, 56);
 const KNIGHT_WALLET_CAPACITY: [ComponentFloatTarget; 3] =
@@ -326,6 +332,9 @@ struct AssetSettings {
     builder_work_time: f32,
     wall5_standard_hit_points: i32,
     wall5_norselands_hit_points: i32,
+    knight_walk_speed: f32,
+    knight_run_speed: f32,
+    knight_retreat_speed: f32,
     knight_wallet_capacity: i32,
     player_wallet_capacity: i32,
     knight_wallet_pay_taxes_above: i32,
@@ -1898,6 +1907,12 @@ fn read_asset_settings(directory: &Path) -> Result<AssetSettings, String> {
             damageable_script_path,
             &WALL5_NORSELANDS_HP,
         )?,
+        knight_walk_speed: consistent_component_value(&resources, &shared,
+            find_mono_script_path(&global_managers, "Knight")?, &KNIGHT_WALK_SPEED)?,
+        knight_run_speed: consistent_component_value(&resources, &shared,
+            find_mono_script_path(&global_managers, "Knight")?, &KNIGHT_RUN_SPEED)?,
+        knight_retreat_speed: consistent_component_value(&resources, &shared,
+            find_mono_script_path(&global_managers, "Knight")?, &KNIGHT_RETREAT_SPEED)?,
         knight_wallet_capacity: consistent_component_int_value(
             &resources,
             wallet_script_path,
@@ -2085,6 +2100,9 @@ fn validate_settings(settings: &AssetSettings) -> Result<(), String> {
         settings.builder_walk_speed,
         settings.builder_run_speed,
         settings.builder_work_time,
+        settings.knight_walk_speed,
+        settings.knight_run_speed,
+        settings.knight_retreat_speed,
         settings.bag_scale,
     ];
     if values
@@ -2389,6 +2407,14 @@ fn apply_game_assets(
         &WALL5_NORSELANDS_HP,
         settings.wall5_norselands_hit_points,
     )?;
+    let knight_script_path = find_mono_script_path(&global_managers, "Knight")?;
+    for (targets, value) in [
+        (&KNIGHT_WALK_SPEED, settings.knight_walk_speed),
+        (&KNIGHT_RUN_SPEED, settings.knight_run_speed),
+        (&KNIGHT_RETREAT_SPEED, settings.knight_retreat_speed),
+    ] {
+        write_component_targets(&mut resources, &mut shared, knight_script_path, targets, value)?;
+    }
     write_component_int_targets(
         &mut resources,
         wallet_script_path,
@@ -2680,6 +2706,44 @@ mod tests {
         // Bad booleans are rejected, not silently interpreted as enabled.
         resources[allowed[0]] = 2;
         assert!(read_unit_invulnerability(&resources, script, &ARCHER_NAMES).is_err());
+    }
+
+    #[test]
+    fn knight_speeds_roundtrip_without_changing_squires_or_other_fields() {
+        let directory = default_game_data_directory();
+        let Ok(mut resources) = fs::read(directory.join(RESOURCES_ASSETS)) else { return; };
+        let mut shared = fs::read(directory.join(SHARED_ASSETS)).unwrap();
+        let global = fs::read(directory.join(GLOBAL_MANAGERS_ASSETS)).unwrap();
+        let script = find_mono_script_path(&global, "Knight").unwrap();
+        let original = resources.clone();
+        let original_shared = shared.clone();
+        let mut allowed = Vec::new();
+        for (targets, relative, value) in [
+            (&KNIGHT_WALK_SPEED, 40, 3.25),
+            (&KNIGHT_RUN_SPEED, 44, 6.5),
+            (&KNIGHT_RETREAT_SPEED, 48, 4.75),
+        ] {
+            for target in targets {
+                let start = resolve_component_offset(&resources, script, target.game_object, 0).unwrap();
+                let name_len = read_int(&resources, start + 28).unwrap();
+                assert_eq!(name_len, 6); // "Knight": aligned payload starts at +40.
+                assert_eq!(target.relative_offset, relative);
+                allowed.extend(start + relative..start + relative + 4);
+            }
+            write_component_targets(&mut resources, &mut shared, script, targets, value).unwrap();
+            assert_eq!(consistent_component_value(&resources, &shared, script, targets).unwrap(), value);
+            for target in targets {
+                let start = resolve_component_offset(&resources, script, target.game_object, 0).unwrap();
+                assert_eq!(read_float(&resources, start + relative).unwrap(), value);
+            }
+        }
+        assert_eq!(shared, original_shared);
+        assert!(resources.iter().zip(&original).enumerate()
+            .all(|(i, (a, b))| a == b || allowed.contains(&i)));
+        for name in ["Squire", "Squire_norselands"] {
+            let start = resolve_component_offset(&original, script, name, 0).unwrap();
+            assert_eq!(&resources[start+40..start+52], &original[start+40..start+52]);
+        }
     }
 
     #[test]

@@ -80,6 +80,9 @@
     builderWorkTime: number;
     wall5StandardHitPoints: number;
     wall5NorselandsHitPoints: number;
+    knightWalkSpeed: number;
+    knightRunSpeed: number;
+    knightRetreatSpeed: number;
     knightWalletCapacity: number;
     playerWalletCapacity: number;
     knightWalletPayTaxesAbove: number;
@@ -1816,7 +1819,11 @@
             </section>
 
             <section class="card asset-card">
-              <h2>Knight Wallet</h2>
+              <h2>Knight</h2>
+              <label>Walk speed<input type="number" min="0" step="0.05" value={assetSettings.knightWalkSpeed} oninput={(e) => updateAssetNumber('knightWalkSpeed', e)} /></label>
+              <label>Run speed<input type="number" min="0" step="0.05" value={assetSettings.knightRunSpeed} oninput={(e) => updateAssetNumber('knightRunSpeed', e)} /></label>
+              <label>Retreat speed<input type="number" min="0" step="0.05" value={assetSettings.knightRetreatSpeed} oninput={(e) => updateAssetNumber('knightRetreatSpeed', e)} /></label>
+              <h3>Wallet</h3>
               <label>Coin drop probability (0–1)<input type="number" min="0" max="1" step="0.05" value={assetSettings.knightCoinDropProbability} oninput={(e) => updateAssetNumber('knightCoinDropProbability', e)} /></label>
               <p class="muted">Character.coinDropProbability: 0 means no coin loss through this damage path; 0.4 means 40% per coin-drop check. This is not full invulnerability.</p>
               <label>Coin capacity<input type="number" min="1" max="1000000" step="1" value={assetSettings.knightWalletCapacity} oninput={(e) => updateAssetNumber('knightWalletCapacity', e)} /></label>
