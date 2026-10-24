@@ -202,24 +202,18 @@ const translations: Record<Language, Translations> = {
 
 ## Release Process
 
-Releases are managed by maintainers:
+Releases are automatic. When a merge to `main` passes CI, the [release workflow](.github/workflows/build.yml):
 
-1. Update CHANGELOG.md with all changes since last release
-2. Update version in:
-   - `package.json`
-   - `src-tauri/Cargo.toml`
-   - `src-tauri/tauri.conf.json`
-3. Commit version bump:
-   ```bash
-   git commit -m "chore: bump version to v1.0.0"
-   ```
-4. Create and push tag:
-   ```bash
-   git tag v1.0.0
-   git push origin v1.0.0
-   ```
-5. GitHub Actions builds and creates draft release
-6. Review and publish release on GitHub
+1. Picks the next version from the conventional commits since the last `v*` tag:
+   - breaking change (`feat!:`, `BREAKING CHANGE`) → major
+   - `feat:` → minor
+   - anything else → patch
+2. Writes it to `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock` and `src-tauri/tauri.conf.json`, then commits `chore(release): vX.Y.Z` and tags it
+3. Builds the macOS (universal) and Windows bundles and publishes the GitHub release with generated notes
+
+Merges that only change Markdown files do not create a release. To force one, or to choose the bump yourself, run the **Release** workflow manually from the Actions tab. Do not edit the version numbers by hand.
+
+Keep CHANGELOG.md up to date for user-facing changes.
 
 ## Questions?
 

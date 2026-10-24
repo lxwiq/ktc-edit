@@ -1,141 +1,176 @@
-name: Build and Release
+name: Release
 
+# Every push to main that passes CI publishes a macOS + Windows release.
+# The version is bumped from the conventional commits since the last tag
+# (breaking → major, feat → minor, anything else → patch) and written back to
+# package.json, package-lock.json, Cargo.toml, Cargo.lock and tauri.conf.json.
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Version number (e.g., v0.1.0)'
-        required: false
-        default: 'v0.0.0-dev'
+      bump:
+        description: 'Version bump (auto follows conventional commits)'
+        type: choice
+        options: [auto, patch, minor, major]
+        default: auto
 
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
-  changelog:
-    name: Generate Changelog
+  version:
+    name: Bump version and tag
+    # Only CI runs for pushes to this repository's main, never pull requests.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     outputs:
-      release_body: ${{ steps.changelog.outputs.changelog }}
+      release: ${{ steps.bump.outputs.release }}
+      tag: ${{ steps.bump.outputs.tag }}
+      release_id: ${{ steps.draft.outputs.id }}
     steps:
-      - name: Checkout code
+      - name: Checkout main
         uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
 
-      - name: Generate changelog
-        id: changelog
-        run: |
-          if [ "${{ github.event_name }}" == "push" ]; then
-            VERSION="${{ github.ref_name }}"
-          else
-            VERSION="${{ github.event.inputs.version }}"
-          fi
-          
-          # Get the previous tag
-          PREV_TAG=$(git tag --sort=-v:refname | grep -E "^v[0-9]" | head -n 2 | tail -n 1)
-          
-          if [ -z "$PREV_TAG" ]; then
-            echo "No previous tag found, using all commits"
-            PREV_TAG=$(git rev-list --max-parents=0 HEAD)
-          fi
-          
-          echo "Generating changelog from $PREV_TAG to HEAD"
-          
-          # Generate changelog
-          CHANGELOG="## What's Changed\n\n"
-          
-          # Features
-          FEATURES=$(git log $PREV_TAG..HEAD --pretty=format:"%s" --grep="^feat" --no-merges)
-          if [ ! -z "$FEATURES" ]; then
-            CHANGELOG="$CHANGELOG### Features\n\n"
-            while IFS= read -r line; do
-              CHANGELOG="$CHANGELOG- ${line#feat: }\n"
-            done <<< "$FEATURES"
-            CHANGELOG="$CHANGELOG\n"
-          fi
-          
-          # Bug Fixes
-          FIXES=$(git log $PREV_TAG..HEAD --pretty=format:"%s" --grep="^fix" --no-merges)
-          if [ ! -z "$FIXES" ]; then
-            CHANGELOG="$CHANGELOG### Bug Fixes\n\n"
-            while IFS= read -r line; do
-              CHANGELOG="$CHANGELOG- ${line#fix: }\n"
-            done <<< "$FIXES"
-            CHANGELOG="$CHANGELOG\n"
-          fi
-          
-          # Documentation
-          DOCS=$(git log $PREV_TAG..HEAD --pretty=format:"%s" --grep="^docs" --no-merges)
-          if [ ! -z "$DOCS" ]; then
-            CHANGELOG="$CHANGELOG### Documentation\n\n"
-            while IFS= read -r line; do
-              CHANGELOG="$CHANGELOG- ${line#docs: }\n"
-            done <<< "$DOCS"
-            CHANGELOG="$CHANGELOG\n"
-          fi
-          
-          # Other changes
-          OTHERS=$(git log $PREV_TAG..HEAD --pretty=format:"%s" --invert-grep --grep="^feat" --grep="^fix" --grep="^docs" --grep="^chore" --grep="^Merge" --no-merges)
-          if [ ! -z "$OTHERS" ]; then
-            CHANGELOG="$CHANGELOG### Other Changes\n\n"
-            while IFS= read -r line; do
-              CHANGELOG="$CHANGELOG- $line\n"
-            done <<< "$OTHERS"
-            CHANGELOG="$CHANGELOG\n"
-          fi
-          
-          # Add installation instructions
-          CHANGELOG="$CHANGELOG\n---\n\n"
-          CHANGELOG="$CHANGELOG## Installation\n\n"
-          CHANGELOG="$CHANGELOG### Download\n\n"
-          CHANGELOG="$CHANGELOG- **macOS**: Download \`ktcedit_*_aarch64.dmg\` or \`ktcedit_*_universal.dmg\`\n"
-          CHANGELOG="$CHANGELOG- **Windows**: Download \`ktcedit_*_x64-setup.exe\` or \`ktcedit_*_x64_en-US.msi\`\n"
-          CHANGELOG="$CHANGELOG- **Linux**: Download \`ktcedit_*_amd64.deb\` or \`ktcedit_*_amd64.AppImage\`\n\n"
-          CHANGELOG="$CHANGELOG### First-time Users\n\n"
-          CHANGELOG="$CHANGELOG1. Download the appropriate file for your platform\n"
-          CHANGELOG="$CHANGELOG2. Install or extract the application\n"
-          CHANGELOG="$CHANGELOG3. Run the application\n"
-          CHANGELOG="$CHANGELOG4. Click 'Open global-v35' to select your Kingdom Two Crowns save file\n\n"
-          CHANGELOG="$CHANGELOG**Note**: Make sure to close Kingdom Two Crowns before editing save files.\n\n"
-          CHANGELOG="$CHANGELOG**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${VERSION}\n"
-          
-          # Save to file
-          echo -e "$CHANGELOG" > changelog.md
-          
-          # Output for GitHub
-          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
-          echo "changelog<<$EOF" >> $GITHUB_OUTPUT
-          cat changelog.md >> $GITHUB_OUTPUT
-          echo "$EOF" >> $GITHUB_OUTPUT
-
-      - name: Upload changelog
-        uses: actions/upload-artifact@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          name: changelog
-          path: changelog.md
+          node-version: 20
+
+      - name: Bump version, commit and tag
+        id: bump
+        env:
+          BUMP: ${{ inputs.bump || 'auto' }}
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          skip() { echo "$1"; echo "release=false" >> "$GITHUB_OUTPUT"; exit 0; }
+
+          # Release exactly the commit CI tested; a newer push gets its own run.
+          if [ -n "$TESTED_SHA" ] && [ "$(git rev-parse HEAD)" != "$TESTED_SHA" ]; then
+            skip "main moved past $TESTED_SHA; its own CI run will release it."
+          fi
+
+          PREV_TAG=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)
+          RANGE=${PREV_TAG:+$PREV_TAG..}HEAD
+          if [ -n "$PREV_TAG" ] && [ "$BUMP" = auto ] &&
+             [ -z "$(git diff --name-only "$PREV_TAG" HEAD -- . ':!*.md' ':!LICENSE')" ]; then
+            skip "Only documentation changed since $PREV_TAG; nothing to release."
+          fi
+
+          if [ "$BUMP" = auto ]; then
+            LOG=$(git log "$RANGE" --no-merges --format='%s%n%b')
+            if grep -qE '^[a-z]+(\([^)]*\))?!:|^BREAKING[ -]CHANGE' <<<"$LOG"; then BUMP="major"
+            elif grep -qE '^feat(\([^)]*\))?:' <<<"$LOG"; then BUMP="minor"
+            else BUMP="patch"; fi
+          fi
+          CURRENT=$(node -p "require('./package.json').version")
+          IFS=. read -r MAJOR MINOR PATCH <<<"${CURRENT%%-*}"
+          case "$BUMP" in
+            major) VERSION="$((MAJOR + 1)).0.0" ;;
+            minor) VERSION="$MAJOR.$((MINOR + 1)).0" ;;
+            patch) VERSION="$MAJOR.$MINOR.$((PATCH + 1))" ;;
+          esac
+          TAG="v$VERSION"
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "::error::Tag $TAG already exists"; exit 1
+          fi
+          echo "$CURRENT → $VERSION ($BUMP, commits ${PREV_TAG:-from the start})"
+
+          npm version "$VERSION" --no-git-tag-version
+          node -e '
+            const fs = require("fs"), file = "src-tauri/tauri.conf.json";
+            const conf = JSON.parse(fs.readFileSync(file, "utf8"));
+            conf.version = process.argv[1];
+            fs.writeFileSync(file, JSON.stringify(conf, null, 2) + "\n");
+          ' "$VERSION"
+          perl -pi -e 's/^version = "[^"]*"/version = "'"$VERSION"'"/ if !$done && /^version = /m && ($done = 1)' src-tauri/Cargo.toml
+          perl -0pi -e 's/(name = "ktcedit"\nversion = ")[^"]+/${1}'"$VERSION"'/' src-tauri/Cargo.lock
+          git diff --stat
+          [ "$(git diff --name-only | wc -l)" -eq 5 ] || { echo "::error::Expected 5 version files to change"; exit 1; }
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore(release): $TAG [skip ci]"
+          git tag -a "$TAG" -m "$TAG"
+          if ! git push --atomic origin HEAD:main "refs/tags/$TAG"; then
+            skip "::warning::main moved during the release; the next CI run will release it."
+          fi
+          {
+            echo "release=true"
+            echo "tag=$TAG"
+            echo "prev_tag=$PREV_TAG"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create draft release
+        id: draft
+        if: steps.bump.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.bump.outputs.tag }}
+          PREV_TAG: ${{ steps.bump.outputs.prev_tag }}
+        run: |
+          set -euo pipefail
+          VERSION=${TAG#v}
+          cat > notes.md <<EOF
+          ## Downloads
+
+          | Platform | File |
+          | --- | --- |
+          | macOS (Apple Silicon and Intel) | \`ktcedit_${VERSION}_universal.dmg\` |
+          | Windows | \`ktcedit_${VERSION}_x64-setup.exe\` (installer) or \`ktcedit_${VERSION}_x64_en-US.msi\` |
+
+          The binary patches (visible coin limit, vagrant camps, warhorse collider) only work on Apple Silicon Macs.
+
+          The builds are not signed by Apple or Microsoft:
+          - **macOS**: if the app is reported as damaged or from an unidentified developer, allow it in System Settings → Privacy & Security, or run \`xattr -dr com.apple.quarantine /Applications/ktcedit.app\`.
+          - **Windows**: in the SmartScreen prompt, choose **More info** → **Run anyway**.
+
+          Close Kingdom Two Crowns and keep a separate copy of your \`global-v35\` save before editing.
+
+          EOF
+          gh release create "$TAG" --draft --verify-tag \
+            --title "Kingdom Two Crowns Save Editor $TAG" \
+            --notes-file notes.md --generate-notes ${PREV_TAG:+--notes-start-tag "$PREV_TAG"}
+          ID=$(gh api "repos/$GITHUB_REPOSITORY/releases" --jq ".[] | select(.tag_name == \"$TAG\") | .id")
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
 
   build:
-    name: Build (${{ matrix.platform }})
-    needs: changelog
+    name: Build (${{ matrix.name }})
+    needs: version
+    if: needs.version.outputs.release == 'true'
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: 'macos-latest'
+          - name: macOS
+            platform: macos-latest
             args: '--target universal-apple-darwin'
-          - platform: 'ubuntu-22.04'
+            rust_targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
+          - name: Windows
+            platform: windows-latest
             args: ''
-          - platform: 'windows-latest'
-            args: ''
+            rust_targets: ''
 
     runs-on: ${{ matrix.platform }}
     steps:
-      - name: Checkout code
+      - name: Checkout release tag
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -146,61 +181,31 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.rust_targets }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
 
-      - name: Install dependencies (Ubuntu)
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev \
-            build-essential \
-            curl \
-            wget \
-            file \
-            libxdo-dev \
-            libssl-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            patchelf
-
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Build application
+      - name: Build and upload bundles
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.event_name == 'push' && github.ref_name || github.event.inputs.version }}
-          releaseName: 'Kingdom Two Crowns Save Editor __VERSION__'
-          releaseBody: ${{ needs.changelog.outputs.release_body }}
-          releaseDraft: true
-          prerelease: false
+          releaseId: ${{ needs.version.outputs.release_id }}
           args: ${{ matrix.args }}
 
-  finalize:
-    name: Finalize Release
-    needs: [changelog, build]
+  publish:
+    name: Publish release
+    needs: [version, build]
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Download changelog
-        uses: actions/download-artifact@v4
-        with:
-          name: changelog
-
-      - name: Display changelog
-        run: cat changelog.md
-
-      - name: Release ready
-        run: |
-          echo "Release draft created successfully!"
-          echo "Version: ${{ github.event_name == 'push' && github.ref_name || github.event.inputs.version }}"
-          echo "Please review and publish the release at: https://github.com/${{ github.repository }}/releases"
+      - name: Publish the draft once every bundle is uploaded
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ID: ${{ needs.version.outputs.release_id }}
+        run: gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$ID" -F draft=false -f make_latest=true

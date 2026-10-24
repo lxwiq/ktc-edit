@@ -92,7 +92,7 @@ npm run check
 npm run tauri build
 ```
 
-Built bundles are placed in `src-tauri/target/release/bundle/`. The included GitHub Actions workflow builds draft releases on `v*` tags or manual dispatch; publishing a release is a separate step.
+Built bundles are placed in `src-tauri/target/release/bundle/`. Every merge to `main` that passes CI publishes a macOS and Windows release automatically; see [CONTRIBUTING.md](CONTRIBUTING.md#release-process) for how the version number is chosen.
 
 ## Contributing
 
