@@ -637,7 +637,16 @@ fn load_save_file(path: String) -> Result<LoadResponse, String> {
 
 #[tauri::command]
 fn select_save_file() -> Result<LoadResponse, String> {
-    let Some(selected) = FileDialog::new().set_title("Choose global-v35").pick_file() else {
+    let mut dialog = FileDialog::new().set_title("Choose global-v35");
+    // ~/Library is hidden in the macOS picker, so start where the game keeps its save.
+    if let Some(folder) = save_file_candidates()
+        .iter()
+        .filter_map(|path| path.parent())
+        .find(|folder| folder.is_dir())
+    {
+        dialog = dialog.set_directory(folder);
+    }
+    let Some(selected) = dialog.pick_file() else {
         return Err("Selection cancelled".into());
     };
 
@@ -861,56 +870,136 @@ fn create_backup(original: &Path) -> Result<PathBuf, String> {
     Ok(backup_path)
 }
 
-fn default_game_data_directory() -> PathBuf {
+/// Steam installation folders to search, most common first.
+fn steam_roots() -> Vec<PathBuf> {
     #[cfg(target_os = "macos")]
     {
         let home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_default();
-        return home.join("Library/Application Support/Steam/steamapps/common/Kingdom Two Crowns/KingdomTwoCrowns.app/Contents/Resources/Data");
+        return vec![home.join("Library/Application Support/Steam")];
     }
     #[cfg(target_os = "windows")]
     {
-        let program_files = std::env::var_os("PROGRAMFILES(X86)")
-            .or_else(|| std::env::var_os("PROGRAMFILES"))
-            .map(PathBuf::from)
-            .unwrap_or_default();
-        return program_files
-            .join("Steam/steamapps/common/Kingdom Two Crowns/KingdomTwoCrowns_Data");
+        return ["PROGRAMFILES(X86)", "PROGRAMFILES"]
+            .iter()
+            .filter_map(|name| std::env::var_os(name))
+            .map(|program_files| PathBuf::from(program_files).join("Steam"))
+            .collect();
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_default();
-        home.join(".local/share/Steam/steamapps/common/Kingdom Two Crowns/KingdomTwoCrowns_Data")
+        vec![
+            home.join(".local/share/Steam"),
+            home.join(".steam/steam"),
+            home.join(".var/app/com.valvesoftware.Steam/.local/share/Steam"),
+        ]
     }
 }
 
-fn default_save_file_path() -> Option<PathBuf> {
+/// Library folders listed in Steam's libraryfolders.vdf (games installed on other drives).
+fn steam_library_paths(vdf: &str) -> Vec<PathBuf> {
+    vdf.lines()
+        .filter_map(|line| {
+            let mut fields = line.split('"').filter(|field| !field.trim().is_empty());
+            if fields.next()? != "path" {
+                return None;
+            }
+            fields.next().map(|path| PathBuf::from(path.replace("\\\\", "\\")))
+        })
+        .collect()
+}
+
+/// The game's Data folder inside its Steam install folder.
+fn data_directory_in_game_folder(game_folder: &Path) -> PathBuf {
     #[cfg(target_os = "macos")]
     {
-        let home = std::env::var_os("HOME").map(PathBuf::from)?;
-        let path = home
-            .join("Library/Application Support/nl.noio.kingdom-two-crowns/Release")
-            .join(SAVE_FILENAME);
-        if path.exists() {
-            return Some(path);
+        game_folder.join("KingdomTwoCrowns.app/Contents/Resources/Data")
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        game_folder.join("KingdomTwoCrowns_Data")
+    }
+}
+
+/// Accepts the Data folder itself, the game folder, or the macOS app bundle.
+fn resolve_game_data_directory(selected: PathBuf) -> PathBuf {
+    [
+        selected.clone(),
+        data_directory_in_game_folder(&selected),
+        selected.join("Contents/Resources/Data"),
+    ]
+    .into_iter()
+    .find(|directory| directory.join(RESOURCES_ASSETS).is_file())
+    .unwrap_or(selected)
+}
+
+/// Finds the game in every Steam library. Falls back to the default Steam location, which
+/// then produces the usual "could not find" error.
+fn default_game_data_directory() -> PathBuf {
+    let roots = steam_roots();
+    let mut libraries = Vec::new();
+    for root in &roots {
+        libraries.push(root.clone());
+        if let Ok(vdf) = fs::read_to_string(root.join("steamapps/libraryfolders.vdf")) {
+            libraries.extend(steam_library_paths(&vdf));
+        }
+    }
+    let candidates: Vec<PathBuf> = libraries
+        .iter()
+        .map(|library| data_directory_in_game_folder(&library.join("steamapps/common/Kingdom Two Crowns")))
+        .collect();
+    candidates
+        .iter()
+        .find(|directory| directory.join(RESOURCES_ASSETS).is_file())
+        .or_else(|| candidates.first())
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// Where the game writes global-v35, most likely first.
+fn save_file_candidates() -> Vec<PathBuf> {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let mut folders = Vec::new();
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(home) = &home {
+            folders.push(home.join("Library/Application Support/nl.noio.kingdom-two-crowns/Release"));
         }
     }
     #[cfg(target_os = "windows")]
     {
-        let appdata = std::env::var_os("APPDATA")
-            .or_else(|| std::env::var_os("USERPROFILE"))
-            .map(PathBuf::from)?;
-        let path = appdata
-            .join("LocalLow/Raw Fury/Kingdom Two Crowns/Release")
-            .join(SAVE_FILENAME);
-        if path.exists() {
-            return Some(path);
+        if let Some(profile) = std::env::var_os("USERPROFILE").map(PathBuf::from) {
+            folders.push(profile.join("AppData/LocalLow/noio/KingdomTwoCrowns/Release"));
+        }
+        if let Some(appdata) = std::env::var_os("APPDATA").map(PathBuf::from) {
+            folders.push(appdata.join("LocalLow/Raw Fury/Kingdom Two Crowns/Release"));
         }
     }
-    None
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let config = std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .or_else(|| home.as_ref().map(|home| home.join(".config")));
+        if let Some(config) = config {
+            folders.push(config.join("unity3d/noio/KingdomTwoCrowns/Release"));
+        }
+    }
+    let _ = &home; // Unused on Windows.
+    folders.into_iter().map(|folder| folder.join(SAVE_FILENAME)).collect()
+}
+
+fn default_save_file_path() -> Option<PathBuf> {
+    save_file_candidates().into_iter().find(|path| path.is_file())
+}
+
+/// The save found at the game's default location, so the welcome screen can open it directly.
+#[tauri::command]
+fn find_default_save_file() -> Option<String> {
+    default_save_file_path().map(|path| path.to_string_lossy().to_string())
 }
 
 fn reset_walls_damageable_in_save_file(save_path: &Path) -> Result<usize, String> {
@@ -1976,7 +2065,7 @@ fn read_asset_settings(directory: &Path) -> Result<AssetSettings, String> {
 #[tauri::command]
 fn load_game_assets(data_directory: Option<String>) -> Result<AssetResponse, String> {
     let directory = data_directory
-        .map(PathBuf::from)
+        .map(|selected| resolve_game_data_directory(PathBuf::from(selected)))
         .unwrap_or_else(default_game_data_directory);
     let settings = read_asset_settings(&directory)?;
     Ok(AssetResponse {
@@ -1988,7 +2077,7 @@ fn load_game_assets(data_directory: Option<String>) -> Result<AssetResponse, Str
 #[tauri::command]
 fn select_game_data_directory() -> Result<AssetResponse, String> {
     let Some(directory) = FileDialog::new()
-        .set_title("Select the Kingdom Two Crowns Data folder")
+        .set_title("Select the Kingdom Two Crowns game folder")
         .pick_folder()
     else {
         return Err("Folder selection was cancelled".into());
@@ -2616,6 +2705,50 @@ mod tests {
     use super::*;
     use flate2::{read::GzDecoder, write::GzEncoder, Compression};
     use serde_json::json;
+
+    #[test]
+    fn reads_library_paths_from_steam_libraryfolders() {
+        let vdf = r#""libraryfolders"
+{
+	"0"
+	{
+		"path"		"/Users/player/Library/Application Support/Steam"
+		"label"		""
+		"apps"
+		{
+			"701160"		"1450238571"
+		}
+	}
+	"1"
+	{
+		"path"		"D:\\SteamLibrary"
+	}
+}"#;
+        assert_eq!(
+            steam_library_paths(vdf),
+            vec![
+                PathBuf::from("/Users/player/Library/Application Support/Steam"),
+                PathBuf::from("D:\\SteamLibrary"),
+            ]
+        );
+    }
+
+    #[test]
+    fn resolves_data_directory_from_the_game_folder_or_app_bundle() {
+        let root = tempfile::tempdir().unwrap();
+        let game_folder = root.path().join("Kingdom Two Crowns");
+        let data = data_directory_in_game_folder(&game_folder);
+        fs::create_dir_all(&data).unwrap();
+        fs::write(data.join(RESOURCES_ASSETS), b"").unwrap();
+
+        assert_eq!(resolve_game_data_directory(game_folder.clone()), data);
+        assert_eq!(resolve_game_data_directory(data.clone()), data);
+        #[cfg(target_os = "macos")]
+        assert_eq!(resolve_game_data_directory(game_folder.join("KingdomTwoCrowns.app")), data);
+
+        let elsewhere = root.path().join("elsewhere");
+        assert_eq!(resolve_game_data_directory(elsewhere.clone()), elsewhere);
+    }
 
     #[test]
     fn warhorse_collider_limit_decodes_and_encodes_arm64_movz() {
@@ -3282,6 +3415,7 @@ pub fn run() {
             load_save_file,
             save_save_file,
             select_save_file,
+            find_default_save_file,
             reset_unit_damageable_overrides,
             reset_unit_damageable_save,
             load_game_assets,
