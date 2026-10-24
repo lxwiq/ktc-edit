@@ -36,7 +36,7 @@
   "plugins": {
     "updater": {
       "requireSignedVersion": true,
-      "pubkey": "__UPDATER_PUBKEY__",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERCOEY4QTFGMzc0M0Q3NEUKUldSTzEwTTNINHFQMjk1bmZ4MUJPb3dSYjkzemxyUHNrdW4xOXl2SlJOVG1mSmFacGVCejRiSnoK",
       "endpoints": [
         "https://github.com/lxwiq/ktc-edit/releases/latest/download/latest.json"
       ],

@@ -68,6 +68,10 @@ jobs:
           if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
             echo "::error::$TAG is not an existing vX.Y.Z tag"; exit 1
           fi
+          # Only commits already on main may be built and signed as an update.
+          if ! git merge-base --is-ancestor "$TAG" HEAD; then
+            echo "::error::$TAG is not on main"; exit 1
+          fi
           PREV_TAG=$(git describe --tags --abbrev=0 --match 'v[0-9]*' "$TAG^" 2>/dev/null || true)
           {
             echo "release=true"
