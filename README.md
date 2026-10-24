@@ -8,7 +8,7 @@ Edit coins and gems, manage islands and units, and customize mounts and game set
 
 ## Quick start
 
-1. Download a build from [Releases](https://github.com/lxwiq/ktc-edit/releases) or [build from source](#build-from-source).
+1. Download a build from [Releases](https://github.com/lxwiq/ktc-edit/releases) or [build from source](#build-from-source). Once installed, the app checks for new releases at startup and offers to install them.
 2. Close Kingdom Two Crowns and keep a separate copy of your save before editing.
 3. Launch the app and open your `global-v35` save file.
 4. Select **Campaign** or **Challenge**, then the relevant island or challenge.

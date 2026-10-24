@@ -209,7 +209,9 @@ Releases are automatic. When a merge to `main` passes CI, the [release workflow]
    - `feat:` → minor
    - anything else → patch
 2. Writes it to `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock` and `src-tauri/tauri.conf.json`, then commits `chore(release): vX.Y.Z` and tags it
-3. Builds the macOS (universal) and Windows bundles and publishes the GitHub release with generated notes
+3. Builds the macOS (universal) and Windows bundles, signs the in-app update artifacts and `latest.json`, and publishes the GitHub release with generated notes
+
+The `release` environment holds the secrets: `RELEASE_DEPLOY_KEY` (pushes the version commit past the `main` ruleset) and `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (signs updates; the matching public key is in `tauri.conf.json`). Losing the signing key means installed apps can no longer update.
 
 Merges that only change Markdown files do not create a release. To force one, or to choose the bump yourself, run the **Release** workflow manually from the Actions tab. Do not edit the version numbers by hand.
 

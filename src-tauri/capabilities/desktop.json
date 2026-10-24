@@ -1,0 +1,16 @@
+{
+  "identifier": "desktop-capability",
+  "description": "Desktop-only plugins: in-app updates and relaunch after installing",
+  "platforms": [
+    "macOS",
+    "windows",
+    "linux"
+  ],
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "updater:default",
+    "process:allow-restart"
+  ]
+}
