@@ -80,11 +80,12 @@
     builderWorkTime: number;
     wall5StandardHitPoints: number;
     wall5NorselandsHitPoints: number;
-    knightWalkSpeed: number;
-    peasantWalkSpeed: number;
-    peasantRunSpeed: number;
-    knightRunSpeed: number;
-    knightRetreatSpeed: number;
+    // null when this game build's layout is not recognized for these fields.
+    knightWalkSpeed: number | null;
+    peasantWalkSpeed: number | null;
+    peasantRunSpeed: number | null;
+    knightRunSpeed: number | null;
+    knightRetreatSpeed: number | null;
     knightWalletCapacity: number;
     playerWalletCapacity: number;
     knightWalletPayTaxesAbove: number;
@@ -137,6 +138,8 @@
   let bloodMoonStatus = $state<string | null>(null);
   let bloodMoonError = $state<string | null>(null);
   let clockMultiplier = $state(3);
+  let clockCurrent = $state<number | null>(null);
+  let clockAvailable = $state(false);
   let clockStatus = $state<string | null>(null);
   let clockError = $state<string | null>(null);
   let campNeedsUpgrade = $state(false);
@@ -1511,6 +1514,15 @@
         bloodMoonEnabled = result.enabled;
         bloodMoonAvailable = true;
       } catch (error) { bloodMoonError = String(error); }
+      clockAvailable = false;
+      clockCurrent = null;
+      clockStatus = null;
+      clockError = null;
+      try {
+        clockCurrent = await invoke<number>("load_clock_speed", {dataDirectory: response.dataDirectory});
+        clockMultiplier = clockCurrent;
+        clockAvailable = true;
+      } catch (error) { clockError = String(error); }
       campStatus = null;
       campError = null;
       try {
@@ -1587,7 +1599,7 @@
       bloodMoonEnabled = response.enabled;
       if (response.editor_data) data = response.editor_data;
       bloodMoonStatus = (response.enabled ? "Every-night Blood Moon patch enabled." : "Original day classification restored.") +
-        (response.enabled ? ` Converted ${response.converted_events} pending Regular events; added ${response.added_events} Boss events toward ten per side/day.` : " Already-converted save events are not reverted.") +
+        (response.enabled ? ` Converted ${response.converted_events} pending Regular events; added ${response.added_events} Boss events toward ten per side/day.` : " Converted and added save events are not reverted; to undo them, restore a global-v35_<timestamp>.bak save backup made before enabling.") +
         (response.backup ? ` Native backup: ${response.backup}` : "") +
         (response.save_backup ? ` Save written and verified. Backup: ${response.save_backup}` : " Save unchanged.");
     } catch (error) { bloodMoonError = String(error); }
@@ -1595,7 +1607,7 @@
   }
 
   async function applyClockSpeed(multiplier: number) {
-    if (!assetDirectory || assetBusy) return;
+    if (!assetDirectory || !clockAvailable || assetBusy) return;
     assetBusy = true; clockStatus = null; clockError = null;
     try {
       const response = await invoke<{multiplier: number; native_backup: string | null; save_backup: string | null; updated_directors: number; editor_data: JSONValue | null}>("apply_clock_speed", {
@@ -1603,6 +1615,7 @@
         editorData: data ? JSON.parse(JSON.stringify(data)) : null
       });
       clockMultiplier = response.multiplier;
+      clockCurrent = response.multiplier;
       if (response.editor_data) data = response.editor_data;
       clockStatus = `ResumeTime now uses ×${response.multiplier}; updated ${response.updated_directors} saved island clocks.` +
         (response.native_backup ? ` Dylib backup: ${response.native_backup}` : "") +
@@ -1813,12 +1826,13 @@
 
             <section class="card asset-card">
               <h2>Clock speed</h2>
+              <p class="muted">Current: {clockAvailable && clockCurrent !== null ? `×${clockCurrent} in ResumeTime` : 'Unavailable for this game build or platform'}</p>
               <label>Day/night clock multiplier
-                <input type="number" min="0" step="0.5" bind:value={clockMultiplier} disabled={assetBusy} />
+                <input type="number" min="0" step="0.5" bind:value={clockMultiplier} disabled={assetBusy || !clockAvailable} />
               </label>
-              <button type="button" onclick={() => applyClockSpeed(clockMultiplier)} disabled={assetBusy}>Apply clock speed to dylib + save</button>
-              <button type="button" onclick={() => applyClockSpeed(1)} disabled={assetBusy}>Reset clock speed to ×1</button>
-              <p class="muted">Apple Silicon only; close the game first. Default input ×3 is a requested value, not a live reading. Patches ResumeTime and writes all Campaign/Challenge island clockSpeedModifier values in the open save (or default global-v35), with backups and verification. Does not change unit movement or animation speed. PauseTime still uses zero. Other code such as AdjustTime can still change the multiplier; this is not a permanent override of every clock writer. Reset writes ×1, not the previous save snapshot. Already-running games require restart. Runtime behavior unverified.</p>
+              <button type="button" onclick={() => applyClockSpeed(clockMultiplier)} disabled={assetBusy || !clockAvailable}>Apply clock speed to dylib + save</button>
+              <button type="button" onclick={() => applyClockSpeed(1)} disabled={assetBusy || !clockAvailable || clockCurrent === 1}>Reset clock speed to ×1</button>
+              <p class="muted">Apple Silicon only; close the game first. Patches ResumeTime and writes all Campaign/Challenge island clockSpeedModifier values in the open save (or default global-v35), with backups and verification. Does not change unit movement or animation speed. PauseTime still uses zero. Other code such as AdjustTime can still change the multiplier; this is not a permanent override of every clock writer. Reset writes ×1, not the previous save snapshot. Already-running games require restart. Runtime behavior unverified.</p>
               {#if clockStatus}<p class="status success">{clockStatus}</p>{/if}
               {#if clockError}<p class="status error">{clockError}</p>{/if}
             </section>
@@ -1896,16 +1910,16 @@
 
             <section class="card asset-card">
               <h2>Peasant</h2>
-              <label>Walk speed<input type="number" min="0" step="0.05" value={assetSettings.peasantWalkSpeed} oninput={(e) => updateAssetNumber('peasantWalkSpeed', e)} /></label>
-              <label>Run speed<input type="number" min="0" step="0.05" value={assetSettings.peasantRunSpeed} oninput={(e) => updateAssetNumber('peasantRunSpeed', e)} /></label>
-              <p class="muted">Edits walkSpeed and runSpeed on the Peasant prefab. Other unit prefabs are unchanged.</p>
+              <label>Walk speed<input type="number" min="0" step="0.05" value={assetSettings.peasantWalkSpeed ?? ''} disabled={assetSettings.peasantWalkSpeed === null} oninput={(e) => updateAssetNumber('peasantWalkSpeed', e)} /></label>
+              <label>Run speed<input type="number" min="0" step="0.05" value={assetSettings.peasantRunSpeed ?? ''} disabled={assetSettings.peasantRunSpeed === null} oninput={(e) => updateAssetNumber('peasantRunSpeed', e)} /></label>
+              <p class="muted">Edits walkSpeed and runSpeed on the Peasant prefab. Other unit prefabs are unchanged. Disabled fields are not recognized in this game build and are left untouched.</p>
             </section>
 
             <section class="card asset-card">
               <h2>Knight</h2>
-              <label>Walk speed<input type="number" min="0" step="0.05" value={assetSettings.knightWalkSpeed} oninput={(e) => updateAssetNumber('knightWalkSpeed', e)} /></label>
-              <label>Run speed<input type="number" min="0" step="0.05" value={assetSettings.knightRunSpeed} oninput={(e) => updateAssetNumber('knightRunSpeed', e)} /></label>
-              <label>Retreat speed<input type="number" min="0" step="0.05" value={assetSettings.knightRetreatSpeed} oninput={(e) => updateAssetNumber('knightRetreatSpeed', e)} /></label>
+              <label>Walk speed<input type="number" min="0" step="0.05" value={assetSettings.knightWalkSpeed ?? ''} disabled={assetSettings.knightWalkSpeed === null} oninput={(e) => updateAssetNumber('knightWalkSpeed', e)} /></label>
+              <label>Run speed<input type="number" min="0" step="0.05" value={assetSettings.knightRunSpeed ?? ''} disabled={assetSettings.knightRunSpeed === null} oninput={(e) => updateAssetNumber('knightRunSpeed', e)} /></label>
+              <label>Retreat speed<input type="number" min="0" step="0.05" value={assetSettings.knightRetreatSpeed ?? ''} disabled={assetSettings.knightRetreatSpeed === null} oninput={(e) => updateAssetNumber('knightRetreatSpeed', e)} /></label>
               <h3>Wallet</h3>
               <label>Coin drop probability (0–1)<input type="number" min="0" max="1" step="0.05" value={assetSettings.knightCoinDropProbability} oninput={(e) => updateAssetNumber('knightCoinDropProbability', e)} /></label>
               <p class="muted">Character.coinDropProbability: 0 means no coin loss through this damage path; 0.4 means 40% per coin-drop check. This is not full invulnerability.</p>

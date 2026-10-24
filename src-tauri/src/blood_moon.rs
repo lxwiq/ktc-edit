@@ -280,8 +280,8 @@ pub fn apply_blood_moon(data_directory: String, enabled: bool, save_path: Option
     patch(&mut b,enabled)?;
     let native_changed = b != native_original;
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e|e.to_string())?.as_nanos();
-    let backup = p.with_file_name(format!("{GAME_ASSEMBLY}.bloodmoon.{stamp}.bak"));
-    let temp = p.with_file_name(format!("{GAME_ASSEMBLY}.bloodmoon.{stamp}.tmp"));
+    let backup = p.with_file_name(format!("{GAME_ASSEMBLY}.ktcedit.{stamp}.bak"));
+    let temp = p.with_file_name(format!("{GAME_ASSEMBLY}.ktcedit.{stamp}.tmp"));
     if native_changed { fs::copy(&p,&backup).map_err(|e|e.to_string())?; }
     let mut save_backup = None;
     let result = (|| -> Result<(),String> {

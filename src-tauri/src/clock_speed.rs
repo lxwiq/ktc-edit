@@ -62,6 +62,7 @@ pub struct Response { multiplier:f32, native_backup:Option<String>, save_backup:
 
 #[tauri::command]
 pub fn load_clock_speed(data_directory:String) -> Result<f32,String> {
+    if !cfg!(all(target_os="macos",target_arch="aarch64")) {return Err("Apple Silicon Macs only".into());}
     let bytes=fs::read(game_assembly_path(Path::new(&data_directory))?).map_err(|e|e.to_string())?;
     Ok(site(&bytes)?.1)
 }
@@ -86,7 +87,7 @@ pub fn apply_clock_speed(data_directory:String, multiplier:f32, save_path:Option
     let encoded=encoder.finish().map_err(|e|e.to_string())?;
     if decode(&encoded)?!=doc {return Err("Save preparation verification failed".into());}
     let stamp=SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e|e.to_string())?.as_nanos();
-    let temp=native.with_file_name(format!("{GAME_ASSEMBLY}.clock.{stamp}.tmp"));
+    let temp=native.with_file_name(format!("{GAME_ASSEMBLY}.ktcedit.{stamp}.tmp"));
     let mut native_backup=None; let mut save_backup=None;
     let result=(|| -> Result<(),String> {
         if patched!=original {
@@ -99,7 +100,7 @@ pub fn apply_clock_speed(data_directory:String, multiplier:f32, save_path:Option
             if site(&fs::read(&temp).map_err(|e|e.to_string())?)?.1!=multiplier {return Err("Native verification failed".into());}
         }
         if game_is_running() || fs::read(&native).map_err(|e|e.to_string())?!=original || fs::read(&path).map_err(|e|e.to_string())?!=save_original {return Err("Game started or files changed; retry".into());}
-        if patched!=original {let backup=native.with_file_name(format!("{GAME_ASSEMBLY}.clock.{stamp}.bak"));fs::copy(&native,&backup).map_err(|e|e.to_string())?;native_backup=Some(backup.to_string_lossy().into_owned());}
+        if patched!=original {let backup=native.with_file_name(format!("{GAME_ASSEMBLY}.ktcedit.{stamp}.bak"));fs::copy(&native,&backup).map_err(|e|e.to_string())?;native_backup=Some(backup.to_string_lossy().into_owned());}
         if updated_directors>0 {
             save_backup=Some(create_backup(&path)?.to_string_lossy().into_owned());
             atomic_replace(&path,&encoded)?;

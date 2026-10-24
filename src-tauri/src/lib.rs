@@ -6,7 +6,7 @@ use std::{
 };
 
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -338,11 +338,12 @@ struct AssetSettings {
     builder_work_time: f32,
     wall5_standard_hit_points: i32,
     wall5_norselands_hit_points: i32,
-    knight_walk_speed: f32,
-    peasant_walk_speed: f32,
-    peasant_run_speed: f32,
-    knight_run_speed: f32,
-    knight_retreat_speed: f32,
+    // None when this game build's layout does not match (see optional_asset_value).
+    knight_walk_speed: Option<f32>,
+    peasant_walk_speed: Option<f32>,
+    peasant_run_speed: Option<f32>,
+    knight_run_speed: Option<f32>,
+    knight_retreat_speed: Option<f32>,
     knight_wallet_capacity: i32,
     player_wallet_capacity: i32,
     knight_wallet_pay_taxes_above: i32,
@@ -1692,6 +1693,15 @@ fn write_unit_invulnerability(resources: &mut [u8], script: i64, names: &[&str],
     Ok(())
 }
 
+// Settings added after the October build are optional: if a game build's
+// layout differs, they are reported as unavailable instead of preventing the
+// whole asset editor from loading.
+fn optional_asset_value<T>(label: &str, value: Result<T, String>) -> Option<T> {
+    value
+        .map_err(|err| warn!("{label} is unavailable for this game build: {err}"))
+        .ok()
+}
+
 fn read_asset_settings(directory: &Path) -> Result<AssetSettings, String> {
     validate_asset_directory(directory)?;
     let resources = fs::read(directory.join(RESOURCES_ASSETS)).map_err(|err| err.to_string())?;
@@ -1709,6 +1719,21 @@ fn read_asset_settings(directory: &Path) -> Result<AssetSettings, String> {
     let worker_script_path = find_mono_script_path(&global_managers, "Worker")?;
     let damageable_script_path = find_mono_script_path(&global_managers, "Damageable")?;
     let wallet_script_path = find_mono_script_path(&global_managers, "Wallet")?;
+    let unit_speed = |class_name: &str, targets: &[ComponentFloatTarget]| {
+        optional_asset_value(
+            &format!("{class_name} speed"),
+            find_mono_script_path(&global_managers, class_name).and_then(|script_path| {
+                consistent_component_value(&resources, &shared, script_path, targets)
+            }),
+        )
+    };
+    let unit_invulnerability = |label: &str, names: &[&str]| {
+        optional_asset_value(
+            &format!("{label} invulnerability"),
+            read_unit_invulnerability(&resources, damageable_script_path, names),
+        )
+        .flatten()
+    };
     Ok(AssetSettings {
         // Clean builds have different Greece defaults. Apply synchronizes all variants.
         griffin_run_speed: primary_component_value(
@@ -1915,16 +1940,11 @@ fn read_asset_settings(directory: &Path) -> Result<AssetSettings, String> {
             damageable_script_path,
             &WALL5_NORSELANDS_HP,
         )?,
-        knight_walk_speed: consistent_component_value(&resources, &shared,
-            find_mono_script_path(&global_managers, "Knight")?, &KNIGHT_WALK_SPEED)?,
-        peasant_walk_speed: consistent_component_value(&resources, &shared,
-            find_mono_script_path(&global_managers, "Peasant")?, &PEASANT_WALK_SPEED)?,
-        peasant_run_speed: consistent_component_value(&resources, &shared,
-            find_mono_script_path(&global_managers, "Peasant")?, &PEASANT_RUN_SPEED)?,
-        knight_run_speed: consistent_component_value(&resources, &shared,
-            find_mono_script_path(&global_managers, "Knight")?, &KNIGHT_RUN_SPEED)?,
-        knight_retreat_speed: consistent_component_value(&resources, &shared,
-            find_mono_script_path(&global_managers, "Knight")?, &KNIGHT_RETREAT_SPEED)?,
+        knight_walk_speed: unit_speed("Knight", &KNIGHT_WALK_SPEED),
+        peasant_walk_speed: unit_speed("Peasant", &PEASANT_WALK_SPEED),
+        peasant_run_speed: unit_speed("Peasant", &PEASANT_RUN_SPEED),
+        knight_run_speed: unit_speed("Knight", &KNIGHT_RUN_SPEED),
+        knight_retreat_speed: unit_speed("Knight", &KNIGHT_RETREAT_SPEED),
         knight_wallet_capacity: consistent_component_int_value(
             &resources,
             wallet_script_path,
@@ -1946,9 +1966,9 @@ fn read_asset_settings(directory: &Path) -> Result<AssetSettings, String> {
             find_mono_script_path(&global_managers, "Character")?,
             &KNIGHT_COIN_DROP_PROBABILITY,
         )?,
-        archer_invulnerable: read_unit_invulnerability(&resources, damageable_script_path, &ARCHER_NAMES)?,
-        builder_invulnerable: read_unit_invulnerability(&resources, damageable_script_path, &BUILDER_NAMES)?,
-        farmer_invulnerable: read_unit_invulnerability(&resources, damageable_script_path, &FARMER_NAMES)?,
+        archer_invulnerable: unit_invulnerability("Archer", &ARCHER_NAMES),
+        builder_invulnerable: unit_invulnerability("Builder", &BUILDER_NAMES),
+        farmer_invulnerable: unit_invulnerability("Farmer", &FARMER_NAMES),
         bag_scale: consistent_builtin_component_value(&resources, &shared, 4, &BAG_SCALE)?,
     })
 }
@@ -2112,15 +2132,18 @@ fn validate_settings(settings: &AssetSettings) -> Result<(), String> {
         settings.builder_walk_speed,
         settings.builder_run_speed,
         settings.builder_work_time,
+        settings.bag_scale,
+    ];
+    let unit_speeds = [
         settings.knight_walk_speed,
         settings.peasant_walk_speed,
         settings.peasant_run_speed,
         settings.knight_run_speed,
         settings.knight_retreat_speed,
-        settings.bag_scale,
     ];
     if values
         .iter()
+        .chain(unit_speeds.iter().flatten())
         .any(|value| !valid_nonnegative_asset_number(*value))
     {
         return Err("Speeds, costs, sizes, and cooldowns must be finite and non-negative".into());
@@ -2421,20 +2444,18 @@ fn apply_game_assets(
         &WALL5_NORSELANDS_HP,
         settings.wall5_norselands_hit_points,
     )?;
-    let knight_script_path = find_mono_script_path(&global_managers, "Knight")?;
-    let peasant_script_path = find_mono_script_path(&global_managers, "Peasant")?;
-    for (targets, value) in [
-        (&PEASANT_WALK_SPEED, settings.peasant_walk_speed),
-        (&PEASANT_RUN_SPEED, settings.peasant_run_speed),
+    // Unavailable (None) unit speeds are left untouched.
+    for (class_name, targets, value) in [
+        ("Peasant", &PEASANT_WALK_SPEED[..], settings.peasant_walk_speed),
+        ("Peasant", &PEASANT_RUN_SPEED[..], settings.peasant_run_speed),
+        ("Knight", &KNIGHT_WALK_SPEED[..], settings.knight_walk_speed),
+        ("Knight", &KNIGHT_RUN_SPEED[..], settings.knight_run_speed),
+        ("Knight", &KNIGHT_RETREAT_SPEED[..], settings.knight_retreat_speed),
     ] {
-        write_component_targets(&mut resources, &mut shared, peasant_script_path, targets, value)?;
-    }
-    for (targets, value) in [
-        (&KNIGHT_WALK_SPEED, settings.knight_walk_speed),
-        (&KNIGHT_RUN_SPEED, settings.knight_run_speed),
-        (&KNIGHT_RETREAT_SPEED, settings.knight_retreat_speed),
-    ] {
-        write_component_targets(&mut resources, &mut shared, knight_script_path, targets, value)?;
+        if let Some(value) = value {
+            let script_path = find_mono_script_path(&global_managers, class_name)?;
+            write_component_targets(&mut resources, &mut shared, script_path, targets, value)?;
+        }
     }
     write_component_int_targets(
         &mut resources,
