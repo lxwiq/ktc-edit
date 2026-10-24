@@ -107,7 +107,12 @@ jobs:
           git commit -am "chore(release): $TAG [skip ci]"
           git tag -a "$TAG" -m "$TAG"
           if ! git push --atomic origin HEAD:main "refs/tags/$TAG"; then
-            skip "::warning::main moved during the release; the next CI run will release it."
+            git fetch -q origin main
+            if [ "$(git rev-parse origin/main)" != "$(git rev-parse HEAD~1)" ]; then
+              skip "::warning::main moved during the release; the next CI run will release it."
+            fi
+            echo "::error::Push to main was rejected; GitHub Actions must be in the main ruleset's bypass list."
+            exit 1
           fi
           {
             echo "release=true"
