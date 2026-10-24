@@ -1,3 +1,5 @@
+<p align="center"><img src="src-tauri/icons/128x128@2x.png" width="128" height="128" alt="ktcedit icon"></p>
+
 # Kingdom Two Crowns Save & Asset Editor
 
 Edit coins and gems, manage islands and units, and customize mounts and game settings in a desktop app built with Tauri and SvelteKit.
@@ -109,5 +111,6 @@ If this tool helped you, consider leaving a ⭐ so other players can find it.
 
 - Original Python implementation: [bitwitch/kingdom-edit](https://github.com/bitwitch/kingdom-edit).
 - Kingdom Two Crowns by Noio and Raw Fury.
+- The app icon and social preview are derived from the Kingdom Two Crowns Steam artwork (© Noio / Raw Fury), with an added coin-and-wrench badge to mark this unofficial editor.
 
 [MIT License](LICENSE). This is an unofficial project, unaffiliated with Noio or Raw Fury. Keep backups before editing saves or game files.
