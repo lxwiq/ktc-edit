@@ -6,6 +6,31 @@ Notable user-facing changes to Kingdom Two Crowns Save & Asset Editor. Feature a
 
 ### Contributed by [Nguyen Phu Quang](https://github.com/nguyenphuquang1234567)
 
+From [#8](https://github.com/lxwiq/ktc-edit/pull/8). Static and unit checks only; gameplay and multiplayer behavior are unverified.
+
+#### Save editor
+
+- Reset saved Damageable overrides for Archers, Builders and Farmers so existing units use the prefab defaults (written directly with a backup).
+- Newly spawned Archers, Builders and Farmers inherit HP and invulnerability from the prefab.
+- Float values keep their exact value when a save is re-encoded.
+
+#### Game asset editor
+
+- Knight walk, run and retreat speeds; Peasant walk and run speeds.
+- Archer, Builder and Farmer invulnerability (with always-attackable).
+- These fields are disabled, rather than blocking the editor, on game builds whose layout is not recognized.
+
+#### Apple Silicon binary patches
+
+- Clock speed multiplier: patches ResumeTime and updates saved island clocks.
+- Experimental Blood Moon: every day becomes a Boss day with ten Boss events per side, and failed Boss spawns no longer clear the Red Moon while enemies attack. Restore reverts the binary patch, not the converted save events.
+
+## v0.2.0 — 2026-10-24
+
+First release published automatically from `main`. Includes support for the October game build and Apple Silicon patch layout ([#7](https://github.com/lxwiq/ktc-edit/pull/7)).
+
+### Contributed by [Nguyen Phu Quang](https://github.com/nguyenphuquang1234567)
+
 Merged from the fork [nguyenphuquang1234567/ktc-edit](https://github.com/nguyenphuquang1234567/ktc-edit) (history through `447848c`). These entries summarize the fork's commit history; they do not establish gameplay verification on every platform or DLC.
 
 #### Save editor
