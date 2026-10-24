@@ -49,8 +49,11 @@ fn bl(from: usize, to: usize) -> u32 {
     0x94000000 | (((to as i64-from as i64)/4) as u32 & 0x3ffffff)
 }
 fn repeat_code() -> Vec<u8> {
+    repeat_code_for(10)
+}
+fn repeat_code_for(count: u32) -> Vec<u8> {
     [0xa9bc7bfd,0xa90153f3,0xa9025bf5,0xfd001be8,0xaa0003f3,
-     0xaa0103f4,0x1e204008,0x528000b5,0xaa1303e0,0xaa1403e1,
+     0xaa0103f4,0x1e204008,0x52800015 | (count << 5),0xaa1303e0,0xaa1403e1,
      0x1e204100,bl(REPEAT_CAVE+44,REPEAT_TARGET),0x710006b5,0x54ffff61,
      0xfd401be8,0xa9425bf5,0xa94153f3,0xa8c47bfd,0xd65f03c0]
     .into_iter().flat_map(u32::to_le_bytes).collect()
@@ -82,6 +85,7 @@ fn repeat_sites(b: &[u8], method: usize) -> Result<(usize,usize,bool),String> {
     let word=read32(hook)?;
     if word==bl(REPEAT_HOOK,REPEAT_TARGET) && code.iter().all(|v|*v==0) { return Ok((hook,cave,false)); }
     if word==bl(REPEAT_HOOK,REPEAT_CAVE) && code==repeat_code() { return Ok((hook,cave,true)); }
+    if word==bl(REPEAT_HOOK,REPEAT_CAVE) && code==repeat_code_for(5) { return Ok((hook,cave,false)); }
     Err("Occupied Boss repeat cave or unsupported hook; no changes written".into())
 }
 
@@ -165,7 +169,7 @@ fn convert_events(doc: &mut Value) -> Result<(usize, usize), String> {
                     }
                     for (_, (template, sides)) in groups {
                         for side in [-1,1] {
-                            for _ in sides.get(&side).copied().unwrap_or(0)..5 {
+                            for _ in sides.get(&side).copied().unwrap_or(0)..10 {
                             let mut counterpart = template.clone();
                             counterpart["side"] = side.into();
                             events.push(counterpart);
@@ -252,7 +256,7 @@ pub fn apply_blood_moon(data_directory: String, enabled: bool, save_path: Option
     let p = game_assembly_path(Path::new(&data_directory))?;
     let mut b = fs::read(&p).map_err(|e|e.to_string())?;
     let native_original = b.clone();
-    let native_changed = state(&b)? != enabled;
+    state(&b)?;
     // Prepare and validate the save before modifying either file.
     let mut save = None;
     let mut converted_events = 0;
@@ -274,6 +278,7 @@ pub fn apply_blood_moon(data_directory: String, enabled: bool, save_path: Option
         }
     }
     patch(&mut b,enabled)?;
+    let native_changed = b != native_original;
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e|e.to_string())?.as_nanos();
     let backup = p.with_file_name(format!("{GAME_ASSEMBLY}.bloodmoon.{stamp}.bak"));
     let temp = p.with_file_name(format!("{GAME_ASSEMBLY}.bloodmoon.{stamp}.tmp"));
@@ -340,6 +345,11 @@ mod tests {
         let at = location(&b).unwrap();
         let side = side_site(&b,at).unwrap();
         patch(&mut b,true).unwrap();
+        let (_,repeat_cave,_)=repeat_sites(&b,at).unwrap();
+        b[repeat_cave..repeat_cave+REPEAT_LEN].copy_from_slice(&repeat_code_for(5));
+        assert!(!state(&b).unwrap());
+        patch(&mut b,true).unwrap();
+        assert_eq!(u32::from_le_bytes(b[repeat_cave+28..repeat_cave+32].try_into().unwrap()),0x52800155);
         // Emulate the previous patch: Boss day/waves enabled, native side flag.
         b[side..side+4].copy_from_slice(&SIDE_ORIGINAL.to_le_bytes());
         assert!(!state(&b).unwrap());
@@ -381,13 +391,13 @@ mod tests {
             {"type":2,"startDay":9,"startTime":22,"waveName":"Boss","side":1}
         ]});
         let mut doc=serde_json::json!({"campaigns":[{"_islands":[{"objects":[{"componentData2":[{"type":"DirectorData","data":director}]}]}]}]});
-        assert_eq!(convert_events(&mut doc).unwrap(),(0,26));
+        assert_eq!(convert_events(&mut doc).unwrap(),(0,56));
         let events=doc["campaigns"][0]["_islands"][0]["objects"][0]["componentData2"][0]["data"]["events"].as_array().unwrap();
-        assert_eq!(events.len(),31);
+        assert_eq!(events.len(),61);
         assert_eq!(events[5]["type"],2);
         assert_eq!(events[5]["side"],-1);
         for day in [10,11,12] { for side in [-1,1] {
-            assert_eq!(events.iter().filter(|e|e["startDay"]==day && e["side"]==side).count(),5);
+            assert_eq!(events.iter().filter(|e|e["startDay"]==day && e["side"]==side).count(),10);
         }}
         let snapshot=doc.clone();
         assert_eq!(convert_events(&mut doc).unwrap(),(0,0));
@@ -406,9 +416,9 @@ mod tests {
         ]);
         let director = serde_json::json!({"daysInReign":10,"currentTime":12,"events":events});
         let mut doc = serde_json::json!({"campaigns":[{"_islands":[{"objects":[{"componentData2":[{"type":"DirectorData","data":director.to_string()}]}]}]}],"challenges":{"untouched":true}});
-        assert_eq!(convert_events(&mut doc).unwrap(),(4,16));
+        assert_eq!(convert_events(&mut doc).unwrap(),(4,36));
         let d: Value = serde_json::from_str(doc["campaigns"][0]["_islands"][0]["objects"][0]["componentData2"][0]["data"].as_str().unwrap()).unwrap();
-        assert_eq!(d["events"].as_array().unwrap().len(),23);
+        assert_eq!(d["events"].as_array().unwrap().len(),43);
         assert_eq!(d["events"][0]["waveName"],"Regular");
         assert_eq!(d["events"][1]["waveName"],"Boss");
         assert_eq!(d["events"][5]["waveName"],"Retaliation");

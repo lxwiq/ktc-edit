@@ -1587,7 +1587,7 @@
       bloodMoonEnabled = response.enabled;
       if (response.editor_data) data = response.editor_data;
       bloodMoonStatus = (response.enabled ? "Every-night Blood Moon patch enabled." : "Original day classification restored.") +
-        (response.enabled ? ` Converted ${response.converted_events} pending Regular events; added ${response.added_events} Boss events toward five per side/day.` : " Already-converted save events are not reverted.") +
+        (response.enabled ? ` Converted ${response.converted_events} pending Regular events; added ${response.added_events} Boss events toward ten per side/day.` : " Already-converted save events are not reverted.") +
         (response.backup ? ` Native backup: ${response.backup}` : "") +
         (response.save_backup ? ` Save written and verified. Backup: ${response.save_backup}` : " Save unchanged.");
     } catch (error) { bloodMoonError = String(error); }
@@ -1826,9 +1826,9 @@
             <section class="card asset-card">
               <h2>Blood Moon — experimental</h2>
               <p class="muted">Current: {!bloodMoonAvailable ? 'Unavailable for this game build' : bloodMoonEnabled ? 'Every day classified as bossDay' : 'Original day schedule'}</p>
-              <button type="button" onclick={() => applyBloodMoon(true)} disabled={assetBusy || !bloodMoonAvailable}>Enable 10 Boss events/day (5 per side)</button>
+              <button type="button" onclick={() => applyBloodMoon(true)} disabled={assetBusy || !bloodMoonAvailable}>Enable 20 Boss events/day (10 per side)</button>
               <button type="button" onclick={() => applyBloodMoon(false)} disabled={assetBusy || !bloodMoonAvailable || !bloodMoonEnabled}>Restore original day schedule</button>
-              <p class="muted">Close the game first. Patches the selected game's dylib to schedule five Boss events per side every day, including new campaigns and future schedules. Failed Boss spawns no longer clear Red Moon while enemies are attacking or retaliation is queued; normal danger/safety cleanup remains intact. Waves may overlap and increase CPU/memory load. Also converts pending saved Regular waves and fills pending Boss schedules to five per side/day in the open global-v35 (or default save); existing excess events are not removed. Reapplying adds nothing once each side has five. Writes with backups and verification. Retaliation and saved weather/challenge events are not edited. Already-spawned waves are unchanged. Restore removes the 76-byte repeat cave, 28-byte clear guard, both hooks and day/wave/side patches, not converted save events. Runtime and multiplayer behavior remain unverified.</p>
+              <p class="muted">Close the game first. Patches the selected game's dylib to schedule ten Boss events per side every day (20 total), including new campaigns and future schedules. Failed Boss spawns no longer clear Red Moon while enemies are attacking or retaliation is queued; normal danger/safety cleanup remains intact. Waves may overlap and increase CPU/memory load. Also converts pending saved Regular waves and fills pending Boss schedules to ten per side/day in the open global-v35 (or default save); existing excess events are not removed. Reapplying adds nothing once each side has ten. Writes with backups and verification. Retaliation and saved weather/challenge events are not edited. Already-spawned waves are unchanged. Restore removes the 76-byte repeat cave, 28-byte clear guard, both hooks and day/wave/side patches, not converted save events. Runtime and multiplayer behavior remain unverified.</p>
               {#if bloodMoonStatus}<p class="status success">{bloodMoonStatus}</p>{/if}
               {#if bloodMoonError}<p class="status error">{bloodMoonError}</p>{/if}
             </section>
