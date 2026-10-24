@@ -107,32 +107,56 @@ fn word(b: &[u8], p: usize) -> Result<u32, String> {
     ))
 }
 fn layout(b: &[u8], off: usize) -> Result<(usize, usize, usize, usize), String> {
-    if coin_bag::layout(b, off)?.0 == 0xb1512c {
-        Ok((0x662030, 0x44d7700, 0x662034, 0x662cfc))
-    } else {
-        Ok((HOOK, CAVE, CONTINUE, FADE))
+    match coin_bag::layout(b, off)?.0 {
+        0xb15cd4 => Ok((0x66122c, 0x44cdf40, 0x661230, 0x661ef8)),
+        0xb1512c => Ok((0x662030, 0x44d7700, 0x662034, 0x662cfc)),
+        _ => Ok((HOOK, CAVE, CONTINUE, FADE)),
     }
 }
 fn guard_for(b: &[u8], off: usize) -> Result<Vec<u8>, String> {
     let (hook, cave, cont, fade) = layout(b, off)?;
     let mut guard = code();
     if hook != HOOK {
+        let (callback, restart) = if hook == 0x66122c {
+            (0x701748, 0x660e78)
+        } else {
+            (0x70254c, 0x661c7c)
+        };
         let set = |g: &mut Vec<u8>, p: usize, w: u32| g[p..p + 4].copy_from_slice(&w.to_le_bytes());
         let mov = |v: usize, base: u32| base | (((v as u32) & 0xffff) << 5);
         set(&mut guard, 12, mov(cave + 8, 0xd280000b));
         set(&mut guard, 16, mov((cave + 8) >> 16, 0xf2a0000b));
-        set(&mut guard, 24, mov(0x70254c, 0xd280000b));
-        set(&mut guard, 28, mov(0x70254c >> 16, 0xf2a0000b));
+        set(&mut guard, 24, mov(callback, 0xd280000b));
+        set(&mut guard, 28, mov(callback >> 16, 0xf2a0000b));
         set(&mut guard, 96, branch(cave + 96, fade, true));
         set(&mut guard, 100, branch(cave + 100, cont, false));
-        set(&mut guard, 240, branch(cave + 240, 0x661c7c, false));
+        set(&mut guard, 240, branch(cave + 240, restart, false));
     }
     Ok(guard)
 }
 fn locate(b: &[u8]) -> Result<usize, String> {
     let off = coin_bag::locate(b)?;
     let (hook, cave, _, _) = layout(b, off)?;
-    if hook != HOOK {
+    if hook == 0x66122c {
+        // October: verify the loop, delegate callback, list layout and stack frame.
+        for (a, w) in [
+            (0x66121c, 0x394162a8), (0x661220, 0x3707fb68),
+            (0x661224, 0x2f00e400), (0x661228, 0xaa1503e0),
+            (0x661230, 0x17ffffd7), (0x7014d0, 0xf9400102),
+            (0x7014d4, 0xaa1303e1), (0x7014dc, 0x9487ef63),
+            (0x7014ec, 0x948c5920), (0x28fd280, 0xf9400448),
+            (0x28fd284, 0xf9000808), (0x660e78, 0xd10343ff),
+            (0x247a550, 0xf9400e88), (0x247a58c, 0xa9017e9f),
+            (0x247a5a4, 0xfd000e60), (0x661874, 0x9478632d),
+        ] {
+            if word(b, off + a)? != w {
+                return Err("Unsupported October camp code".into());
+            }
+        }
+        if b.get(off + 0x490f108..off + 0x490f110) != Some(&0x60000977_u64.to_le_bytes()) {
+            return Err("Unsupported October camp callback".into());
+        }
+    } else if hook != HOOK {
         for (a, w) in [
             (0x662020, 0x394162a8),
             (0x662024, 0x3707fb68),
@@ -406,7 +430,7 @@ mod tests {
             b == original,
             "Restoring must recover the in-memory baseline"
         );
-        b[off + 0x66202c] ^= 1;
+        b[off + hook - 4] ^= 1;
         assert!(patch(&mut b, true).is_err());
     }
     #[test]
@@ -417,5 +441,47 @@ mod tests {
         if p.exists() {
             assert_eq!(code(), fs::read(p).unwrap());
         }
+    }
+
+    #[test]
+    fn installed_combined_patches_roundtrip_without_cross_patch_damage() {
+        let dir = default_game_data_directory();
+        if !dir.join(RESOURCES_ASSETS).exists() { return; }
+        check_metadata(&dir).unwrap();
+        let original = fs::read(game_assembly_path(&dir).unwrap()).unwrap();
+        let mut b = original.clone();
+        let old_camp = read(&b).unwrap();
+        let old_coins = coin_bag::read(&b).unwrap();
+        let (collider, old_limit) = read_collider_limit(&b).unwrap();
+        let (hook, cave, _, _) = layout(&b, locate(&b).unwrap()).unwrap();
+        let off = locate(&b).unwrap();
+        let (coin_hook, coin_cave) = coin_bag::layout(&b, off).unwrap();
+        coin_bag::patch(&mut b, Some(30)).unwrap();
+        patch(&mut b, true).unwrap();
+        b[collider..collider + 4].copy_from_slice(&(0x52800001_u32 | (2000 << 5)).to_le_bytes());
+        assert_eq!(read_collider_limit(&b).unwrap().1, 2000);
+        assert_eq!(coin_bag::read(&b).unwrap(), Some(30));
+        assert!(read(&b).unwrap());
+        assert!(b.iter().zip(&original).enumerate().all(|(i, (a,z))| a == z
+            || (collider..collider+4).contains(&i)
+            || (off+hook..off+hook+4).contains(&i)
+            || (off+cave..off+cave+GUARD_LEN).contains(&i)
+            || (off+coin_hook..off+coin_hook+4).contains(&i)
+            || (off+coin_cave..off+coin_cave+24).contains(&i)));
+        // Optional test artifact only; never replace the installed game.
+        if let Ok(path) = std::env::var("KTC_TEST_PATCH_OUTPUT") {
+            fs::write(path, &b).unwrap();
+        }
+        coin_bag::patch(&mut b, old_coins).unwrap();
+        assert!(read(&b).unwrap());
+        patch(&mut b, old_camp).unwrap();
+        b[collider..collider+4].copy_from_slice(&(0x52800001_u32 | (u32::from(old_limit)<<5)).to_le_bytes());
+        assert_eq!(b, original);
+        // Occupied cave must fail closed without writing even one byte.
+        let mut occupied = original.clone();
+        occupied[off+cave] ^= 1;
+        let before = occupied.clone();
+        assert!(patch(&mut occupied, true).is_err());
+        assert_eq!(occupied, before);
     }
 }

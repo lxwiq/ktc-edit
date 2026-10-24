@@ -29,15 +29,23 @@ const UPDATED_COLLIDER_CONTEXT: [u8; 24] = [
     0x1f, 0xfd, 0x01, 0xa9, 0x00, 0xfd, 0x00, 0xa9,
 ];
 const EXPECTED_RESOURCES_SIZE: u64 = 59_975_696;
+// BuffUnitsSteedAbility..cctor, October build: same allocation, relocated BL.
+const OCTOBER_COLLIDER_CONTEXT: [u8; 24] = [
+    0x59, 0x6e, 0xf1, 0x97, 0x68, 0x02, 0x40, 0xf9, 0x08, 0x5d, 0x40, 0xf9,
+    0x1f, 0x29, 0x00, 0xb9, 0x1f, 0xfd, 0x01, 0xa9, 0x00, 0xfd, 0x00, 0xa9,
+];
 const EXPECTED_SHARED_SIZE: u64 = 59_876_160;
 const UPDATED_RESOURCES_SIZE: u64 = 59_380_416;
 const UPDATED_SHARED_SIZE: u64 = 59_877_328;
+const OCTOBER_RESOURCES_SIZE: u64 = 59_381_728;
+const OCTOBER_SHARED_SIZE: u64 = 59_881_024;
 
 fn supported_asset_sizes(resources: u64, shared: u64) -> bool {
     matches!(
         (resources, shared),
         (EXPECTED_RESOURCES_SIZE, EXPECTED_SHARED_SIZE)
             | (UPDATED_RESOURCES_SIZE, UPDATED_SHARED_SIZE)
+            | (OCTOBER_RESOURCES_SIZE, OCTOBER_SHARED_SIZE)
     )
 }
 
@@ -367,6 +375,7 @@ fn collider_limit_instruction_offset(bytes: &[u8]) -> Result<usize, String> {
         .enumerate()
         .filter(|(_, window)| {
             *window == WARHORSE_COLLIDER_CONTEXT || *window == UPDATED_COLLIDER_CONTEXT
+                || *window == OCTOBER_COLLIDER_CONTEXT
         })
         .map(|(index, _)| index);
     let context_offset = matches
@@ -2409,6 +2418,18 @@ mod tests {
         assert!(supported_asset_sizes(
             UPDATED_RESOURCES_SIZE,
             UPDATED_SHARED_SIZE
+        ));
+        assert!(supported_asset_sizes(
+            OCTOBER_RESOURCES_SIZE,
+            OCTOBER_SHARED_SIZE
+        ));
+        assert!(!supported_asset_sizes(
+            OCTOBER_RESOURCES_SIZE,
+            UPDATED_SHARED_SIZE
+        ));
+        assert!(!supported_asset_sizes(
+            UPDATED_RESOURCES_SIZE,
+            OCTOBER_SHARED_SIZE
         ));
         assert!(!supported_asset_sizes(
             UPDATED_RESOURCES_SIZE,
