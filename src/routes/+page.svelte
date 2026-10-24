@@ -80,10 +80,19 @@
     builderWorkTime: number;
     wall5StandardHitPoints: number;
     wall5NorselandsHitPoints: number;
+    // null when this game build's layout is not recognized for these fields.
+    knightWalkSpeed: number | null;
+    peasantWalkSpeed: number | null;
+    peasantRunSpeed: number | null;
+    knightRunSpeed: number | null;
+    knightRetreatSpeed: number | null;
     knightWalletCapacity: number;
     playerWalletCapacity: number;
     knightWalletPayTaxesAbove: number;
     knightCoinDropProbability: number;
+    archerInvulnerable: boolean | null;
+    builderInvulnerable: boolean | null;
+    farmerInvulnerable: boolean | null;
     bagScale: number;
   }
 
@@ -124,6 +133,15 @@
   let coinVisualStatus = $state<string | null>(null);
   let coinVisualError = $state<string | null>(null);
   let campEnabled = $state(false);
+  let bloodMoonEnabled = $state(false);
+  let bloodMoonAvailable = $state(false);
+  let bloodMoonStatus = $state<string | null>(null);
+  let bloodMoonError = $state<string | null>(null);
+  let clockMultiplier = $state(3);
+  let clockCurrent = $state<number | null>(null);
+  let clockAvailable = $state(false);
+  let clockStatus = $state<string | null>(null);
+  let clockError = $state<string | null>(null);
   let campNeedsUpgrade = $state(false);
   let campAvailable = $state(false);
   let campStatus = $state<string | null>(null);
@@ -132,6 +150,8 @@
   let warhorseColliderError = $state<string | null>(null);
   let warhorseColliderStatus = $state<string | null>(null);
   let resetSaveWalls = $state(true);
+  let unitResetStatus = $state<string | null>(null);
+  let unitResetError = $state<string | null>(null);
   let targetMode = $state<"campaign" | "challenge">("campaign");
   let selectedChallenge = $state(1); // Default to Plague Island if available
   let selectedCampaign = $state(0);
@@ -1486,6 +1506,23 @@
         coinVisualAvailable = true;
       } catch (error) { coinVisualError = String(error); }
       campAvailable = false;
+      bloodMoonAvailable = false;
+      bloodMoonStatus = null;
+      bloodMoonError = null;
+      try {
+        const result = await invoke<{enabled: boolean}>("load_blood_moon", {dataDirectory: response.dataDirectory});
+        bloodMoonEnabled = result.enabled;
+        bloodMoonAvailable = true;
+      } catch (error) { bloodMoonError = String(error); }
+      clockAvailable = false;
+      clockCurrent = null;
+      clockStatus = null;
+      clockError = null;
+      try {
+        clockCurrent = await invoke<number>("load_clock_speed", {dataDirectory: response.dataDirectory});
+        clockMultiplier = clockCurrent;
+        clockAvailable = true;
+      } catch (error) { clockError = String(error); }
       campStatus = null;
       campError = null;
       try {
@@ -1546,6 +1583,44 @@
       campStatus = (response.enabled ? "Vagrant camps are preserved when the forest disappears." : "Original camp removal restored.") +
         (response.backup ? ` Backup: ${response.backup}` : " No changes needed.");
     } catch (error) { campError = String(error); }
+    finally { assetBusy = false; }
+  }
+
+  async function applyBloodMoon(enabled: boolean) {
+    if (!assetDirectory || !bloodMoonAvailable || assetBusy) return;
+    assetBusy = true;
+    bloodMoonError = null;
+    bloodMoonStatus = null;
+    try {
+      const response = await invoke<{enabled: boolean; backup: string | null; save_backup: string | null; converted_events: number; added_events: number; editor_data: JSONValue | null}>("apply_blood_moon", {
+        dataDirectory: assetDirectory, enabled, savePath: filePath || null,
+        editorData: data ? JSON.parse(JSON.stringify(data)) : null
+      });
+      bloodMoonEnabled = response.enabled;
+      if (response.editor_data) data = response.editor_data;
+      bloodMoonStatus = (response.enabled ? "Every-night Blood Moon patch enabled." : "Original day classification restored.") +
+        (response.enabled ? ` Converted ${response.converted_events} pending Regular events; added ${response.added_events} Boss events toward ten per side/day.` : " Converted and added save events are not reverted; to undo them, restore a global-v35_<timestamp>.bak save backup made before enabling.") +
+        (response.backup ? ` Native backup: ${response.backup}` : "") +
+        (response.save_backup ? ` Save written and verified. Backup: ${response.save_backup}` : " Save unchanged.");
+    } catch (error) { bloodMoonError = String(error); }
+    finally { assetBusy = false; }
+  }
+
+  async function applyClockSpeed(multiplier: number) {
+    if (!assetDirectory || !clockAvailable || assetBusy) return;
+    assetBusy = true; clockStatus = null; clockError = null;
+    try {
+      const response = await invoke<{multiplier: number; native_backup: string | null; save_backup: string | null; updated_directors: number; editor_data: JSONValue | null}>("apply_clock_speed", {
+        dataDirectory: assetDirectory, multiplier, savePath: filePath || null,
+        editorData: data ? JSON.parse(JSON.stringify(data)) : null
+      });
+      clockMultiplier = response.multiplier;
+      clockCurrent = response.multiplier;
+      if (response.editor_data) data = response.editor_data;
+      clockStatus = `ResumeTime now uses ×${response.multiplier}; updated ${response.updated_directors} saved island clocks.` +
+        (response.native_backup ? ` Dylib backup: ${response.native_backup}` : "") +
+        (response.save_backup ? ` Save backup: ${response.save_backup}` : "");
+    } catch (error) { clockError = String(error); }
     finally { assetBusy = false; }
   }
 
@@ -1641,6 +1716,27 @@
     }
   }
 
+  async function resetUnitDamageable() {
+    if (assetBusy || isLoading) return;
+    assetBusy = true;
+    unitResetStatus = null;
+    unitResetError = null;
+    try {
+      const response = await invoke<{path: string; backup: string | null; clearedUnits: number; editorData: JSONValue | null}>("reset_unit_damageable_save", {
+        path: filePath, editorData: filePath ? data : null
+      });
+      if (filePath === response.path && response.editorData !== null) data = response.editorData;
+      unitResetStatus = `Saved directly to ${response.path}: removed Damageable overrides from ${response.clearedUnits} units. No extra Save step needed.` +
+        (response.backup ? ` Backup: ${response.backup}.` : " No disk changes were needed.");
+    } catch (error) { unitResetError = String(error); }
+    finally { assetBusy = false; }
+  }
+
+  function updateAssetBoolean(key: 'archerInvulnerable' | 'builderInvulnerable' | 'farmerInvulnerable', event: Event) {
+    if (!assetSettings) return;
+    assetSettings = {...assetSettings, [key]: (event.currentTarget as HTMLInputElement).checked};
+  }
+
   function updateAssetNumber(key: keyof AssetSettings, event: Event) {
     if (!assetSettings) return;
     const value = Number((event.currentTarget as HTMLInputElement).value);
@@ -1729,6 +1825,29 @@
             </section>
 
             <section class="card asset-card">
+              <h2>Clock speed</h2>
+              <p class="muted">Current: {clockAvailable && clockCurrent !== null ? `×${clockCurrent} in ResumeTime` : 'Unavailable for this game build or platform'}</p>
+              <label>Day/night clock multiplier
+                <input type="number" min="0" step="0.5" bind:value={clockMultiplier} disabled={assetBusy || !clockAvailable} />
+              </label>
+              <button type="button" onclick={() => applyClockSpeed(clockMultiplier)} disabled={assetBusy || !clockAvailable}>Apply clock speed to dylib + save</button>
+              <button type="button" onclick={() => applyClockSpeed(1)} disabled={assetBusy || !clockAvailable || clockCurrent === 1}>Reset clock speed to ×1</button>
+              <p class="muted">Apple Silicon only; close the game first. Patches ResumeTime and writes all Campaign/Challenge island clockSpeedModifier values in the open save (or default global-v35), with backups and verification. Does not change unit movement or animation speed. PauseTime still uses zero. Other code such as AdjustTime can still change the multiplier; this is not a permanent override of every clock writer. Reset writes ×1, not the previous save snapshot. Already-running games require restart. Runtime behavior unverified.</p>
+              {#if clockStatus}<p class="status success">{clockStatus}</p>{/if}
+              {#if clockError}<p class="status error">{clockError}</p>{/if}
+            </section>
+
+            <section class="card asset-card">
+              <h2>Blood Moon — experimental</h2>
+              <p class="muted">Current: {!bloodMoonAvailable ? 'Unavailable for this game build' : bloodMoonEnabled ? 'Every day classified as bossDay' : 'Original day schedule'}</p>
+              <button type="button" onclick={() => applyBloodMoon(true)} disabled={assetBusy || !bloodMoonAvailable}>Enable 20 Boss events/day (10 per side)</button>
+              <button type="button" onclick={() => applyBloodMoon(false)} disabled={assetBusy || !bloodMoonAvailable || !bloodMoonEnabled}>Restore original day schedule</button>
+              <p class="muted">Close the game first. Patches the selected game's dylib to schedule ten Boss events per side every day (20 total), including new campaigns and future schedules. Failed Boss spawns no longer clear Red Moon while enemies are attacking or retaliation is queued; normal danger/safety cleanup remains intact. Waves may overlap and increase CPU/memory load. Also converts pending saved Regular waves and fills pending Boss schedules to ten per side/day in the open global-v35 (or default save); existing excess events are not removed. Reapplying adds nothing once each side has ten. Writes with backups and verification. Retaliation and saved weather/challenge events are not edited. Already-spawned waves are unchanged. Restore removes the 76-byte repeat cave, 28-byte clear guard, both hooks and day/wave/side patches, not converted save events. Runtime and multiplayer behavior remain unverified.</p>
+              {#if bloodMoonStatus}<p class="status success">{bloodMoonStatus}</p>{/if}
+              {#if bloodMoonError}<p class="status error">{bloodMoonError}</p>{/if}
+            </section>
+
+            <section class="card asset-card">
               <h2>Vagrant camps</h2>
               <p class="muted">Current: {!campAvailable ? 'Unavailable for this game build' : campNeedsUpgrade ? 'Old patch — upgrade required to detach camps from the forest' : campEnabled ? 'Preserved and detached after deforestation' : 'Original camp removal'}</p>
               <button type="button" onclick={() => applyCampPreservation(true)} disabled={assetBusy || !campAvailable || (campEnabled && !campNeedsUpgrade)}>{campNeedsUpgrade ? 'Upgrade camp preservation' : 'Preserve vagrant camps'}</button>
@@ -1769,13 +1888,39 @@
             </section>
 
             <section class="card asset-card">
+              <h2>Unit damage protection</h2>
+              <label class="asset-checkbox-label"><input type="checkbox" checked={assetSettings.archerInvulnerable === true} indeterminate={assetSettings.archerInvulnerable === null} onchange={(e) => updateAssetBoolean('archerInvulnerable', e)} /><span>Archer — invulnerable + always attackable</span></label>
+              <label class="asset-checkbox-label"><input type="checkbox" checked={assetSettings.builderInvulnerable === true} indeterminate={assetSettings.builderInvulnerable === null} onchange={(e) => updateAssetBoolean('builderInvulnerable', e)} /><span>Builder — invulnerable + always attackable</span></label>
+              <label class="asset-checkbox-label"><input type="checkbox" checked={assetSettings.farmerInvulnerable === true} indeterminate={assetSettings.farmerInvulnerable === null} onchange={(e) => updateAssetBoolean('farmerInvulnerable', e)} /><span>Farmer — invulnerable + always attackable</span></label>
+              <p class="muted">Apply sets both Damageable.isInvulnerableInitially and alwaysAttackable: checked enables both, unchecked disables both. Applies to regular and Norse Lands prefabs, including Knight squad archers. Mixed checkboxes preserve differing flags or variants until changed. Does not change HP or Pikemen. Always attackable keeps units eligible as targets; scripts can still change runtime invulnerability. Gameplay against all enemy types is unverified.</p>
+              <h3>Existing units in save</h3>
+              <p class="muted">After applying assets, reset saved Damageable overrides so existing units can use prefab defaults on reload. This also resets their saved HP. Targets all Archers, Builders and Farmers across Campaigns and Challenges; walls, enemies, Knights and Pikemen are untouched.</p>
+              <p class="muted">Target: {filePath ?? 'global-v35 in the default game save folder (detected automatically)'}</p>
+              <button type="button" onclick={resetUnitDamageable} disabled={assetBusy || isLoading}>Reset &amp; save Damageable — Archer, Builder, Farmer</button>
+              <p class="muted">Close the game first. Writes directly with an automatic backup and verification; no need to open global-v35 or click Save. If a save is open, uses that file and preserves unrelated unsaved editor changes without writing them. Asset Apply/Restore does not undo this save edit.</p>
+              {#if unitResetStatus}<p class="status success">{unitResetStatus}</p>{/if}
+              {#if unitResetError}<p class="status error">{unitResetError}</p>{/if}
+            </section>
+
+            <section class="card asset-card">
               <h2>Player Wallet</h2>
               <label>Total capacity<input type="number" min="1" max="1000000" step="1" value={assetSettings.playerWalletCapacity} oninput={(e) => updateAssetNumber('playerWalletCapacity', e)} /></label>
               <p class="muted">Edits Wallet.TotalCapacity on the Player prefab in resources.assets. Current save and runtime state may affect when the change takes effect.</p>
             </section>
 
             <section class="card asset-card">
-              <h2>Knight Wallet</h2>
+              <h2>Peasant</h2>
+              <label>Walk speed<input type="number" min="0" step="0.05" value={assetSettings.peasantWalkSpeed ?? ''} disabled={assetSettings.peasantWalkSpeed === null} oninput={(e) => updateAssetNumber('peasantWalkSpeed', e)} /></label>
+              <label>Run speed<input type="number" min="0" step="0.05" value={assetSettings.peasantRunSpeed ?? ''} disabled={assetSettings.peasantRunSpeed === null} oninput={(e) => updateAssetNumber('peasantRunSpeed', e)} /></label>
+              <p class="muted">Edits walkSpeed and runSpeed on the Peasant prefab. Other unit prefabs are unchanged. Disabled fields are not recognized in this game build and are left untouched.</p>
+            </section>
+
+            <section class="card asset-card">
+              <h2>Knight</h2>
+              <label>Walk speed<input type="number" min="0" step="0.05" value={assetSettings.knightWalkSpeed ?? ''} disabled={assetSettings.knightWalkSpeed === null} oninput={(e) => updateAssetNumber('knightWalkSpeed', e)} /></label>
+              <label>Run speed<input type="number" min="0" step="0.05" value={assetSettings.knightRunSpeed ?? ''} disabled={assetSettings.knightRunSpeed === null} oninput={(e) => updateAssetNumber('knightRunSpeed', e)} /></label>
+              <label>Retreat speed<input type="number" min="0" step="0.05" value={assetSettings.knightRetreatSpeed ?? ''} disabled={assetSettings.knightRetreatSpeed === null} oninput={(e) => updateAssetNumber('knightRetreatSpeed', e)} /></label>
+              <h3>Wallet</h3>
               <label>Coin drop probability (0–1)<input type="number" min="0" max="1" step="0.05" value={assetSettings.knightCoinDropProbability} oninput={(e) => updateAssetNumber('knightCoinDropProbability', e)} /></label>
               <p class="muted">Character.coinDropProbability: 0 means no coin loss through this damage path; 0.4 means 40% per coin-drop check. This is not full invulnerability.</p>
               <label>Coin capacity<input type="number" min="1" max="1000000" step="1" value={assetSettings.knightWalletCapacity} oninput={(e) => updateAssetNumber('knightWalletCapacity', e)} /></label>
@@ -1898,6 +2043,7 @@
       <div class="header-top">
         <h1>{t.header.title}</h1>
         <div class="header-actions">
+          <button onclick={() => openAssetEditor(false)} disabled={isLoading || assetBusy}>Edit Game Assets</button>
           <button onclick={reloadFile} disabled={isLoading} title="Reload current save file">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M14 8C14 11.3137 11.3137 14 8 14C4.68629 14 2 11.3137 2 8C2 4.68629 4.68629 2 8 2C9.86384 2 11.5289 2.87401 12.6 4.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>

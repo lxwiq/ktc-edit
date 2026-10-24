@@ -25,8 +25,8 @@ For asset settings, choose **Edit Game Assets** from the welcome screen. Select 
 | Navigation | Island travel, ruler teleport, island map and inspector |
 | Combat and recruitment | Unit spawning, formations, enemy and portal actions |
 | Construction | Castle and wall upgrades, tree actions, catapult oil barrels |
-| Game assets | Mounts, archers, builders, wallets, iron walls, bag scale |
-| Apple Silicon patches | Warhorse collider limit, visible coin limit, vagrant camp preservation |
+| Game assets | Mounts, archers, builders, knight and peasant speeds, unit invulnerability, wallets, iron walls, bag scale |
+| Apple Silicon patches | Warhorse collider limit, visible coin limit, vagrant camp preservation, clock speed, experimental Blood Moon |
 
 Some actions depend on the selected mode and game build. The app hides non-applicable tabs in Challenge mode.
 

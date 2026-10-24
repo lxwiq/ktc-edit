@@ -6,11 +6,13 @@ use std::{
 };
 
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 mod camp;
+mod blood_moon;
+mod clock_speed;
 mod coin_bag;
 
 const SAVE_FILENAME: &str = "global-v35";
@@ -196,6 +198,16 @@ const WALL5_STANDARD_HP: [ComponentFloatTarget; 6] =
 const WALL5_NORSELANDS_HP: [ComponentFloatTarget; 2] =
     component_targets(RESOURCES_ASSETS, WALL5_NORSELANDS_NAMES, 44);
 const KNIGHT_WALLET_NAMES: [&str; 3] = ["Knight", "Knight_norselands", "Knight_greece"];
+const PEASANT_WALK_SPEED: [ComponentFloatTarget; 1] =
+    component_targets(RESOURCES_ASSETS, ["Peasant"], 40);
+const PEASANT_RUN_SPEED: [ComponentFloatTarget; 1] =
+    component_targets(RESOURCES_ASSETS, ["Peasant"], 44);
+const KNIGHT_WALK_SPEED: [ComponentFloatTarget; 3] =
+    component_targets(RESOURCES_ASSETS, KNIGHT_WALLET_NAMES, 40);
+const KNIGHT_RUN_SPEED: [ComponentFloatTarget; 3] =
+    component_targets(RESOURCES_ASSETS, KNIGHT_WALLET_NAMES, 44);
+const KNIGHT_RETREAT_SPEED: [ComponentFloatTarget; 3] =
+    component_targets(RESOURCES_ASSETS, KNIGHT_WALLET_NAMES, 48);
 const KNIGHT_COIN_DROP_PROBABILITY: [ComponentFloatTarget; 3] =
     component_targets(RESOURCES_ASSETS, KNIGHT_WALLET_NAMES, 56);
 const KNIGHT_WALLET_CAPACITY: [ComponentFloatTarget; 3] =
@@ -326,10 +338,19 @@ struct AssetSettings {
     builder_work_time: f32,
     wall5_standard_hit_points: i32,
     wall5_norselands_hit_points: i32,
+    // None when this game build's layout does not match (see optional_asset_value).
+    knight_walk_speed: Option<f32>,
+    peasant_walk_speed: Option<f32>,
+    peasant_run_speed: Option<f32>,
+    knight_run_speed: Option<f32>,
+    knight_retreat_speed: Option<f32>,
     knight_wallet_capacity: i32,
     player_wallet_capacity: i32,
     knight_wallet_pay_taxes_above: i32,
     knight_coin_drop_probability: f32,
+    archer_invulnerable: Option<bool>,
+    builder_invulnerable: Option<bool>,
+    farmer_invulnerable: Option<bool>,
     bag_scale: f32,
 }
 
@@ -962,6 +983,113 @@ fn reset_walls_damageable_in_save_file(save_path: &Path) -> Result<usize, String
     Ok(cleared_count)
 }
 
+const FARMER_NAMES: [&str; 2] = ["Farmer", "Farmer_norselands"];
+const PROTECTED_UNIT_PREFABS: [&str; 7] = [
+    "Prefabs/Characters/Archer",
+    "Prefabs/Characters/norselands/Archer_norselands",
+    "Prefabs/Characters/norselands/Archer_Soldier_norselands",
+    "Prefabs/Characters/Worker",
+    "Prefabs/Characters/norselands/Worker_norselands",
+    "Prefabs/Characters/Farmer",
+    "Prefabs/Characters/norselands/Farmer_norselands",
+];
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UnitDamageableResetResponse {
+    data: Value,
+    cleared_units: usize,
+}
+
+// Remove only saved overrides, never the prefab's real component. Match exact
+// prefab paths, not display names or substrings (e.g. GreedArcher, FarmerShop).
+fn clear_unit_damageable_overrides(value: &mut Value) -> usize {
+    match value {
+        Value::Array(items) => items.iter_mut().map(clear_unit_damageable_overrides).sum(),
+        Value::Object(object) => {
+            let targeted = object.get("prefabPath").and_then(Value::as_str)
+                .is_some_and(|path| PROTECTED_UNIT_PREFABS.contains(&path));
+            let mut count = 0;
+            if targeted {
+                if let Some(components) = object.get_mut("componentData2").and_then(Value::as_array_mut) {
+                    let before = components.len();
+                    components.retain(|c| c.get("name").and_then(Value::as_str) != Some("Damageable"));
+                    count += usize::from(components.len() != before);
+                }
+            }
+            count + object.values_mut().map(clear_unit_damageable_overrides).sum::<usize>()
+        }
+        _ => 0,
+    }
+}
+
+#[tauri::command]
+fn reset_unit_damageable_overrides(mut data: Value) -> Result<UnitDamageableResetResponse, String> {
+    if data.get("serializedSaveDataVersion").is_none() {
+        return Err("Open a global-v35 save first".into());
+    }
+    let mut cleared_units = 0;
+    for key in ["campaigns", "challenges"] {
+        if let Some(container) = data.get_mut(key) {
+            cleared_units += clear_unit_damageable_overrides(container);
+        }
+    }
+    Ok(UnitDamageableResetResponse { data, cleared_units })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UnitDamageableFileResponse {
+    path: String,
+    backup: Option<String>,
+    cleared_units: usize,
+    editor_data: Option<Value>,
+}
+
+fn reset_unit_damageable_file(save_path: &Path, editor_data: Option<Value>) -> Result<UnitDamageableFileResponse, String> {
+    validate_path(save_path)?;
+    // Always operate on the latest disk save, never flush unrelated staged edits.
+    let original = fs::read(save_path).map_err(|e| e.to_string())?;
+    let mut decoder = GzDecoder::new(original.as_slice());
+    let mut json = String::new();
+    decoder.read_to_string(&mut json).map_err(|e| e.to_string())?;
+    let parsed: Value = serde_json::from_str(&json).map_err(|e| e.to_string())?;
+    let reset = reset_unit_damageable_overrides(parsed)?;
+    // Synchronize the open editor's overrides too, retaining other unsaved edits.
+    let editor_data = editor_data.map(reset_unit_damageable_overrides).transpose()?.map(|r| r.data);
+    let mut backup = None;
+    if reset.cleared_units > 0 {
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&serde_json::to_vec(&reset.data).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+        let compressed = encoder.finish().map_err(|e| e.to_string())?;
+        if fs::read(save_path).map_err(|e| e.to_string())? != original {
+            return Err("Save changed during reset; retry with the game closed".into());
+        }
+        let backup_path = create_backup(save_path)?;
+        atomic_replace(save_path, &compressed)?;
+        // Verify the on-disk gzip/JSON after writing, restore on verification error.
+        let verified = load_save_file(save_path.to_string_lossy().into_owned());
+        if !verified.as_ref().is_ok_and(|r| r.data == reset.data) {
+            let rollback = atomic_replace(save_path, &original);
+            return Err(format!("Save verification failed; rollback: {rollback:?}. Backup: {}", backup_path.display()));
+        }
+        backup = Some(backup_path.to_string_lossy().into_owned());
+    }
+    Ok(UnitDamageableFileResponse {
+        path: save_path.to_string_lossy().into_owned(), backup,
+        cleared_units: reset.cleared_units, editor_data,
+    })
+}
+
+#[tauri::command]
+fn reset_unit_damageable_save(path: Option<String>, editor_data: Option<Value>) -> Result<UnitDamageableFileResponse, String> {
+    if game_is_running() { return Err("Close Kingdom Two Crowns before resetting the save".into()); }
+    let path = path.map(PathBuf::from).or_else(default_save_file_path)
+        .ok_or("Could not find global-v35 in the default game save folder")?;
+    reset_unit_damageable_file(&path, editor_data)
+}
+
 fn validate_asset_directory(directory: &Path) -> Result<(), String> {
     let resources = directory.join(RESOURCES_ASSETS);
     let shared = directory.join(SHARED_ASSETS);
@@ -1523,6 +1651,57 @@ fn primary_component_value(
     component_value(resources, shared, script_path, target)
 }
 
+fn unit_invulnerability_offsets(
+    resources: &[u8], script: i64, names: &[&str],
+) -> Result<Vec<usize>, String> {
+    let mut offsets = Vec::with_capacity(names.len() * 2);
+    for name in names {
+        let start = resolve_component_offset(resources, script, name, 0)?;
+        let name_len = read_int(resources, start + 28)?;
+        if !(0..=1024).contains(&name_len) { return Err("Invalid component name length".into()); }
+        let payload = (32 + name_len as usize + 3) & !3;
+        // Unity aligns each serialized bool here to four bytes. The five
+        // flags start at +76: lowPriority, alwaysAttackable, persistOnDeath,
+        // ignoredWhenInvulnerable, isInvulnerableInitially (+92, NOT +80).
+        // The preceding biome sound array contributes 12 bytes per entry.
+        let sound_count = read_int(resources, start + payload + 32)?;
+        if !(0..=1024).contains(&sound_count) {
+            return Err("Invalid Damageable biome sound array length".into());
+        }
+        for field in [80, 92] {
+            let relative = payload + field + sound_count as usize * 12;
+            let offset = resolve_component_offset(resources, script, name, relative)?;
+            if resources[offset] > 1 { return Err(format!("Invalid Damageable boolean on {name}")); }
+            offsets.push(offset);
+        }
+    }
+    Ok(offsets)
+}
+
+fn read_unit_invulnerability(resources: &[u8], script: i64, names: &[&str]) -> Result<Option<bool>, String> {
+    let offsets = unit_invulnerability_offsets(resources, script, names)?;
+    let first = *offsets.first().ok_or("No unit prefabs configured")?;
+    let value = resources[first] != 0;
+    Ok(if offsets.iter().all(|offset| (resources[*offset] != 0) == value) { Some(value) } else { None })
+}
+
+fn write_unit_invulnerability(resources: &mut [u8], script: i64, names: &[&str], value: Option<bool>) -> Result<(), String> {
+    if let Some(value) = value {
+        let offsets = unit_invulnerability_offsets(resources, script, names)?;
+        for offset in offsets { resources[offset] = u8::from(value); }
+    }
+    Ok(())
+}
+
+// Settings added after the October build are optional: if a game build's
+// layout differs, they are reported as unavailable instead of preventing the
+// whole asset editor from loading.
+fn optional_asset_value<T>(label: &str, value: Result<T, String>) -> Option<T> {
+    value
+        .map_err(|err| warn!("{label} is unavailable for this game build: {err}"))
+        .ok()
+}
+
 fn read_asset_settings(directory: &Path) -> Result<AssetSettings, String> {
     validate_asset_directory(directory)?;
     let resources = fs::read(directory.join(RESOURCES_ASSETS)).map_err(|err| err.to_string())?;
@@ -1540,6 +1719,21 @@ fn read_asset_settings(directory: &Path) -> Result<AssetSettings, String> {
     let worker_script_path = find_mono_script_path(&global_managers, "Worker")?;
     let damageable_script_path = find_mono_script_path(&global_managers, "Damageable")?;
     let wallet_script_path = find_mono_script_path(&global_managers, "Wallet")?;
+    let unit_speed = |class_name: &str, targets: &[ComponentFloatTarget]| {
+        optional_asset_value(
+            &format!("{class_name} speed"),
+            find_mono_script_path(&global_managers, class_name).and_then(|script_path| {
+                consistent_component_value(&resources, &shared, script_path, targets)
+            }),
+        )
+    };
+    let unit_invulnerability = |label: &str, names: &[&str]| {
+        optional_asset_value(
+            &format!("{label} invulnerability"),
+            read_unit_invulnerability(&resources, damageable_script_path, names),
+        )
+        .flatten()
+    };
     Ok(AssetSettings {
         // Clean builds have different Greece defaults. Apply synchronizes all variants.
         griffin_run_speed: primary_component_value(
@@ -1746,6 +1940,11 @@ fn read_asset_settings(directory: &Path) -> Result<AssetSettings, String> {
             damageable_script_path,
             &WALL5_NORSELANDS_HP,
         )?,
+        knight_walk_speed: unit_speed("Knight", &KNIGHT_WALK_SPEED),
+        peasant_walk_speed: unit_speed("Peasant", &PEASANT_WALK_SPEED),
+        peasant_run_speed: unit_speed("Peasant", &PEASANT_RUN_SPEED),
+        knight_run_speed: unit_speed("Knight", &KNIGHT_RUN_SPEED),
+        knight_retreat_speed: unit_speed("Knight", &KNIGHT_RETREAT_SPEED),
         knight_wallet_capacity: consistent_component_int_value(
             &resources,
             wallet_script_path,
@@ -1767,6 +1966,9 @@ fn read_asset_settings(directory: &Path) -> Result<AssetSettings, String> {
             find_mono_script_path(&global_managers, "Character")?,
             &KNIGHT_COIN_DROP_PROBABILITY,
         )?,
+        archer_invulnerable: unit_invulnerability("Archer", &ARCHER_NAMES),
+        builder_invulnerable: unit_invulnerability("Builder", &BUILDER_NAMES),
+        farmer_invulnerable: unit_invulnerability("Farmer", &FARMER_NAMES),
         bag_scale: consistent_builtin_component_value(&resources, &shared, 4, &BAG_SCALE)?,
     })
 }
@@ -1932,8 +2134,16 @@ fn validate_settings(settings: &AssetSettings) -> Result<(), String> {
         settings.builder_work_time,
         settings.bag_scale,
     ];
+    let unit_speeds = [
+        settings.knight_walk_speed,
+        settings.peasant_walk_speed,
+        settings.peasant_run_speed,
+        settings.knight_run_speed,
+        settings.knight_retreat_speed,
+    ];
     if values
         .iter()
+        .chain(unit_speeds.iter().flatten())
         .any(|value| !valid_nonnegative_asset_number(*value))
     {
         return Err("Speeds, costs, sizes, and cooldowns must be finite and non-negative".into());
@@ -2234,6 +2444,19 @@ fn apply_game_assets(
         &WALL5_NORSELANDS_HP,
         settings.wall5_norselands_hit_points,
     )?;
+    // Unavailable (None) unit speeds are left untouched.
+    for (class_name, targets, value) in [
+        ("Peasant", &PEASANT_WALK_SPEED[..], settings.peasant_walk_speed),
+        ("Peasant", &PEASANT_RUN_SPEED[..], settings.peasant_run_speed),
+        ("Knight", &KNIGHT_WALK_SPEED[..], settings.knight_walk_speed),
+        ("Knight", &KNIGHT_RUN_SPEED[..], settings.knight_run_speed),
+        ("Knight", &KNIGHT_RETREAT_SPEED[..], settings.knight_retreat_speed),
+    ] {
+        if let Some(value) = value {
+            let script_path = find_mono_script_path(&global_managers, class_name)?;
+            write_component_targets(&mut resources, &mut shared, script_path, targets, value)?;
+        }
+    }
     write_component_int_targets(
         &mut resources,
         wallet_script_path,
@@ -2267,6 +2490,10 @@ fn apply_game_assets(
         &KNIGHT_COIN_DROP_PROBABILITY,
         settings.knight_coin_drop_probability,
     )?;
+
+    write_unit_invulnerability(&mut resources, damageable_script_path, &ARCHER_NAMES, settings.archer_invulnerable)?;
+    write_unit_invulnerability(&mut resources, damageable_script_path, &BUILDER_NAMES, settings.builder_invulnerable)?;
+    write_unit_invulnerability(&mut resources, damageable_script_path, &FARMER_NAMES, settings.farmer_invulnerable)?;
 
     let resources_backup = create_backup(&resources_path)?;
     let shared_backup = create_backup(&shared_path)?;
@@ -2440,6 +2667,217 @@ mod tests {
             UPDATED_SHARED_SIZE
         ));
         assert!(!supported_asset_sizes(0, 0));
+    }
+
+    #[test]
+    fn unit_damageable_reset_is_scoped_and_preserves_other_save_data() {
+        let make = |prefab: &str| serde_json::json!({
+            "prefabPath": prefab, "name": "Archer", "position": [12, 3],
+            "componentData2": [
+                {"name":"Damageable", "type":"DamageableData", "data":"{\"hitPoints\":7,\"invulnerable\":false}"},
+                {"name":"Wallet", "data":"{\"Coins\":15}"},
+                {"name":"Character", "data":"{}"}
+            ]
+        });
+        let mut objects: Vec<Value> = PROTECTED_UNIT_PREFABS.iter().map(|p| make(p)).collect();
+        for path in ["Prefabs/Characters/Knight", "Prefabs/Characters/Pikeman",
+            "Prefabs/Enemies/GreedArcher", "Prefabs/Buildings/Wall5", "Prefabs/Characters/FarmerShop"] {
+            objects.push(make(path));
+        }
+        let original = serde_json::json!({
+            "serializedSaveDataVersion":35,
+            "campaigns":[{"_islands":[{"objects":objects.clone()}]}],
+            "challenges":[{"_islands":[{"objects":objects}]}],
+            "unrelated":make(PROTECTED_UNIT_PREFABS[0]), "prefs":{"keep":true}
+        });
+        let response = reset_unit_damageable_overrides(original.clone()).unwrap();
+        assert_eq!(response.cleared_units, 14);
+        let mut expected = original.clone();
+        for group in ["campaigns", "challenges"] {
+            for i in 0..7 {
+                expected[group][0]["_islands"][0]["objects"][i]["componentData2"]
+                    .as_array_mut().unwrap().remove(0);
+            }
+        }
+        assert_eq!(response.data, expected);
+        let again = reset_unit_damageable_overrides(response.data).unwrap();
+        assert_eq!(again.cleared_units, 0);
+        assert_eq!(again.data, expected);
+        assert!(reset_unit_damageable_overrides(serde_json::json!({})).is_err());
+    }
+
+    #[test]
+    fn unit_invulnerability_writes_only_target_boolean_bytes() {
+        let directory = default_game_data_directory();
+        let Ok(mut resources) = fs::read(directory.join(RESOURCES_ASSETS)) else { return; };
+        let global = fs::read(directory.join(GLOBAL_MANAGERS_ASSETS)).unwrap();
+        let script = find_mono_script_path(&global, "Damageable").unwrap();
+        let original = resources.clone();
+        let mut allowed = Vec::new();
+        for names in [&ARCHER_NAMES[..], &BUILDER_NAMES[..], &FARMER_NAMES[..]] {
+            let offsets = unit_invulnerability_offsets(&resources, script, names).unwrap();
+            // Independently check the field's aligned position, rather than
+            // accepting any offset returned by the function under test.
+            for (name, pair) in names.iter().zip(offsets.chunks_exact(2)) {
+                let start = resolve_component_offset(&resources, script, name, 0).unwrap();
+                let len = read_int(&resources, start + 28).unwrap() as usize;
+                let payload = (32 + len + 3) & !3;
+                let sounds = read_int(&resources, start + payload + 32).unwrap() as usize;
+                assert_eq!(pair[0], start + payload + 80 + sounds * 12);
+                assert_eq!(pair[1], start + payload + 92 + sounds * 12);
+            }
+            allowed.extend_from_slice(&offsets);
+            write_unit_invulnerability(&mut resources, script, names, Some(true)).unwrap();
+            for pair in offsets.chunks_exact(2) {
+                assert_eq!((resources[pair[0]], resources[pair[1]]), (1, 1));
+            }
+            assert_eq!(read_unit_invulnerability(&resources, script, names).unwrap(), Some(true));
+            write_unit_invulnerability(&mut resources, script, names, Some(false)).unwrap();
+            for pair in offsets.chunks_exact(2) {
+                assert_eq!((resources[pair[0]], resources[pair[1]]), (0, 0));
+            }
+            assert_eq!(read_unit_invulnerability(&resources, script, names).unwrap(), Some(false));
+            resources[offsets[0]] = 1;
+            assert_eq!(read_unit_invulnerability(&resources, script, names).unwrap(), None);
+            let mixed = resources.clone();
+            write_unit_invulnerability(&mut resources, script, names, None).unwrap();
+            assert_eq!(resources, mixed);
+        }
+        assert!(resources.iter().zip(&original).enumerate()
+            .all(|(i,(a,b))| a==b || allowed.contains(&i)));
+        // Bad booleans are rejected, not silently interpreted as enabled.
+        resources[allowed[0]] = 2;
+        assert!(read_unit_invulnerability(&resources, script, &ARCHER_NAMES).is_err());
+    }
+
+    #[test]
+    fn knight_speeds_roundtrip_without_changing_squires_or_other_fields() {
+        let directory = default_game_data_directory();
+        let Ok(mut resources) = fs::read(directory.join(RESOURCES_ASSETS)) else { return; };
+        let mut shared = fs::read(directory.join(SHARED_ASSETS)).unwrap();
+        let global = fs::read(directory.join(GLOBAL_MANAGERS_ASSETS)).unwrap();
+        let script = find_mono_script_path(&global, "Knight").unwrap();
+        let original = resources.clone();
+        let original_shared = shared.clone();
+        let mut allowed = Vec::new();
+        for (targets, relative, value) in [
+            (&KNIGHT_WALK_SPEED, 40, 3.25),
+            (&KNIGHT_RUN_SPEED, 44, 6.5),
+            (&KNIGHT_RETREAT_SPEED, 48, 4.75),
+        ] {
+            for target in targets {
+                let start = resolve_component_offset(&resources, script, target.game_object, 0).unwrap();
+                let name_len = read_int(&resources, start + 28).unwrap();
+                assert_eq!(name_len, 6); // "Knight": aligned payload starts at +40.
+                assert_eq!(target.relative_offset, relative);
+                allowed.extend(start + relative..start + relative + 4);
+            }
+            write_component_targets(&mut resources, &mut shared, script, targets, value).unwrap();
+            assert_eq!(consistent_component_value(&resources, &shared, script, targets).unwrap(), value);
+            for target in targets {
+                let start = resolve_component_offset(&resources, script, target.game_object, 0).unwrap();
+                assert_eq!(read_float(&resources, start + relative).unwrap(), value);
+            }
+        }
+        assert_eq!(shared, original_shared);
+        assert!(resources.iter().zip(&original).enumerate()
+            .all(|(i, (a, b))| a == b || allowed.contains(&i)));
+        for name in ["Squire", "Squire_norselands"] {
+            let start = resolve_component_offset(&original, script, name, 0).unwrap();
+            assert_eq!(&resources[start+40..start+52], &original[start+40..start+52]);
+        }
+    }
+
+    #[test]
+    fn peasant_speeds_write_only_two_serialized_floats() {
+        let directory = default_game_data_directory();
+        let Ok(mut resources) = fs::read(directory.join(RESOURCES_ASSETS)) else { return; };
+        let mut shared = fs::read(directory.join(SHARED_ASSETS)).unwrap();
+        let global = fs::read(directory.join(GLOBAL_MANAGERS_ASSETS)).unwrap();
+        let script = find_mono_script_path(&global, "Peasant").unwrap();
+        let start = resolve_component_offset(&resources, script, "Peasant", 0).unwrap();
+        let len = read_int(&resources, start + 28).unwrap();
+        assert_eq!(len, 7); // Peasant: aligned payload begins at +40.
+        let original = resources.clone();
+        let original_shared = shared.clone();
+        for (targets, relative, value) in [
+            (&PEASANT_WALK_SPEED, 40, 2.75),
+            (&PEASANT_RUN_SPEED, 44, 5.25),
+        ] {
+            assert_eq!(targets[0].relative_offset, relative);
+            write_component_targets(&mut resources, &mut shared, script, targets, value).unwrap();
+            assert_eq!(read_float(&resources, start + relative).unwrap(), value);
+            assert_eq!(consistent_component_value(&resources, &shared, script, targets).unwrap(), value);
+        }
+        assert_eq!(shared, original_shared);
+        assert_eq!(&resources[..start+40], &original[..start+40]);
+        assert_eq!(&resources[start+48..], &original[start+48..]);
+        for (targets, relative) in [(&PEASANT_WALK_SPEED, 40), (&PEASANT_RUN_SPEED, 44)] {
+            let value = read_float(&original, start + relative).unwrap();
+            write_component_targets(&mut resources, &mut shared, script, targets, value).unwrap();
+        }
+        assert_eq!(resources, original);
+    }
+
+    #[test]
+    fn unit_reset_writes_disk_and_backup_without_flushing_unrelated_editor_changes() {
+        let dir = tempdir().unwrap();
+        let original = serde_json::json!({
+            "serializedSaveDataVersion":35,
+            "campaigns":[{"_islands":[{"objects":[
+                {"prefabPath":PROTECTED_UNIT_PREFABS[0],"componentData2":[{"name":"Damageable","data":"{}"},{"name":"Wallet","data":"{\"Coins\":2}"}]},
+                {"prefabPath":"Prefabs/Buildings/Wall5","componentData2":[{"name":"Damageable","data":"{\"hitPoints\":20}"}]}
+            ]}]}],
+            "challenges":[{"_islands":[{"objects":[
+                {"prefabPath":PROTECTED_UNIT_PREFABS[3],"componentData2":[{"name":"Damageable","data":"{}"}]}
+            ]}]}],
+            "unrelated":42
+        });
+        let path = write_test_save(dir.path(), &original);
+        let mut staged = original.clone();
+        staged["unrelated"] = serde_json::json!(999);
+        let response = reset_unit_damageable_file(&path, Some(staged)).unwrap();
+        assert_eq!(response.cleared_units, 2);
+        let backup = PathBuf::from(response.backup.unwrap());
+        assert_eq!(read_save(&backup), original);
+        let expected = reset_unit_damageable_overrides(original.clone()).unwrap().data;
+        assert_eq!(read_save(&path), expected);
+        let mut expected_editor = expected.clone();
+        expected_editor["unrelated"] = serde_json::json!(999);
+        assert_eq!(response.editor_data.unwrap(), expected_editor);
+        let before = fs::read(&path).unwrap();
+        let again = reset_unit_damageable_file(&path, None).unwrap();
+        assert_eq!(again.cleared_units, 0);
+        assert!(again.backup.is_none());
+        assert_eq!(fs::read(&path).unwrap(), before);
+        // Invalid input must not overwrite the file or create a backup.
+        let bad_dir = tempdir().unwrap();
+        let bad_path = write_test_save(bad_dir.path(), &serde_json::json!({"oops":1}));
+        let invalid = fs::read(&bad_path).unwrap();
+        assert!(reset_unit_damageable_file(&bad_path, None).is_err());
+        assert_eq!(fs::read(&bad_path).unwrap(), invalid);
+        assert_eq!(fs::read_dir(bad_dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn reset_real_save_copy_roundtrip() {
+        let Some(source) = default_save_file_path() else { return; };
+        let dir = tempdir().unwrap();
+        let path = dir.path().join(SAVE_FILENAME);
+        fs::copy(source, &path).unwrap();
+        let loaded = read_save(&path);
+        let encoded = serde_json::to_vec(&loaded).unwrap();
+        let decoded: Value = serde_json::from_slice(&encoded).unwrap();
+        fn difference(a: &Value, b: &Value, path: String) {
+            if a == b { return; }
+            match (a,b) {
+                (Value::Object(a),Value::Object(b)) => for (k,v) in a { difference(v,&b[k],format!("{path}.{k}")); },
+                (Value::Array(a),Value::Array(b)) => for (i,v) in a.iter().enumerate() { difference(v,&b[i],format!("{path}[{i}]")); },
+                _ => panic!("JSON roundtrip difference at {path}: {a} != {b}"),
+            }
+        }
+        difference(&loaded,&decoded,"$".into());
+        reset_unit_damageable_file(&path, None).unwrap();
     }
 
     #[test]
@@ -2842,6 +3280,8 @@ pub fn run() {
             load_save_file,
             save_save_file,
             select_save_file,
+            reset_unit_damageable_overrides,
+            reset_unit_damageable_save,
             load_game_assets,
             select_game_data_directory,
             apply_game_assets,
@@ -2851,6 +3291,10 @@ pub fn run() {
             coin_bag::apply_coin_visual_limit,
             camp::load_camp_preservation,
             camp::apply_camp_preservation,
+            blood_moon::load_blood_moon,
+            blood_moon::apply_blood_moon,
+            clock_speed::load_clock_speed,
+            clock_speed::apply_clock_speed,
             apply_warhorse_collider_limit,
             restore_warhorse_collider_limit
         ])
