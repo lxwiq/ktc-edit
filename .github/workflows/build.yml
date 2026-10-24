@@ -39,11 +39,14 @@ jobs:
       tag: ${{ steps.bump.outputs.tag }}
       release_id: ${{ steps.draft.outputs.id }}
     steps:
+      # The "Protect main" ruleset blocks direct pushes; only deploy keys bypass
+      # it, so the version commit is pushed with this repository's release key.
       - name: Checkout main
         uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
+          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -62,6 +65,9 @@ jobs:
           # Release exactly the commit CI tested; a newer push gets its own run.
           if [ -n "$TESTED_SHA" ] && [ "$(git rev-parse HEAD)" != "$TESTED_SHA" ]; then
             skip "main moved past $TESTED_SHA; its own CI run will release it."
+          fi
+          if git log -1 --format=%s | grep -q '^chore(release): '; then
+            skip "HEAD is already a release commit."
           fi
 
           PREV_TAG=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)
@@ -111,7 +117,7 @@ jobs:
             if [ "$(git rev-parse origin/main)" != "$(git rev-parse HEAD~1)" ]; then
               skip "::warning::main moved during the release; the next CI run will release it."
             fi
-            echo "::error::Push to main was rejected; GitHub Actions must be in the main ruleset's bypass list."
+            echo "::error::Push to main was rejected; check that the RELEASE_DEPLOY_KEY secret holds a write deploy key."
             exit 1
           fi
           {
