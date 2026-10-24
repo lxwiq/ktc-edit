@@ -4,6 +4,17 @@ Notable user-facing changes to Kingdom Two Crowns Save & Asset Editor. Feature a
 
 ## Unreleased
 
+### Interface
+
+- New interface built with shadcn-svelte: a sidebar holds the campaign, island or challenge selector and the editor sections, and results appear as notifications.
+- Custom Kingdom Two Crowns icons and a welcome illustration replace the emojis.
+- The island inspector adds a map that places the castle, walls, towers, trees and landmarks along the X axis.
+- Unsaved edits are flagged. Reloading or opening another save asks before discarding them, and ⌘S / Ctrl+S saves.
+- The game asset editor is split into Mounts, Units, Wallets & walls and Apple Silicon patches tabs.
+- The window opens at 1280×820 instead of 800×600.
+- The welcome screen finds global-v35 at the game's default location and opens it in one click; choosing another file starts the picker in the save folder.
+- The game asset editor finds the game in every Steam library, accepts the game folder or app bundle when selecting it by hand, and remembers that folder.
+
 ### Contributed by [Nguyen Phu Quang](https://github.com/nguyenphuquang1234567)
 
 From [#8](https://github.com/lxwiq/ktc-edit/pull/8). Static and unit checks only; gameplay and multiplayer behavior are unverified.

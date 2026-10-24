@@ -9,6 +9,11 @@ export interface Translations {
     pathHint: string;
     openFile: string;
     loading: string;
+    editAssets: string;
+    detected: string;
+    detectedHint: string;
+    notFound: string;
+    chooseOther: string;
     features: {
       resources: { title: string; desc: string };
       navigation: { title: string; desc: string };
@@ -31,6 +36,18 @@ export interface Translations {
     save: string;
     backupCreated: string;
     filePath: string;
+    reload: string;
+    unsaved: string;
+    discardTitle: string;
+    discardDescription: string;
+    discardConfirm: string;
+    cancel: string;
+  };
+  nav: {
+    saveEditor: string;
+    game: string;
+    gameAssets: string;
+    noSave: string;
   };
   context: {
     title: string;
@@ -41,6 +58,8 @@ export interface Translations {
     campaign: string;
     challenge: string;
     island: string;
+    campaignShort: string;
+    challengeShort: string;
   };
   tabs: {
     inspector: string;
@@ -97,6 +116,19 @@ export interface Translations {
     batchUpgradeTowersL6: string;
     upgradeCastleIron: string;
     upgradeCastleStone: string;
+    all: string;
+    built: string;
+    mounds: string;
+    nearCamps: string;
+    campDistance: string;
+    globalBuff: string;
+    notBuilt: string;
+    playerPosition: string;
+    mapTitle: string;
+    mapDescription: string;
+    wallLevelHorn: string;
+    wallLevelIron: string;
+    mound: string;
   };
   resources: {
     title: string;
@@ -131,6 +163,7 @@ export interface Translations {
     teleportX: string;
     teleportButton: string;
     teleportToCastle: string;
+    threats: string;
   };
   combat: {
     title: string;
@@ -210,6 +243,11 @@ const translations: Record<Language, Translations> = {
       pathHint: 'The file picker will automatically open this folder',
       openFile: 'Open global-v35',
       loading: 'Loading...',
+      editAssets: 'Edit game assets',
+      detected: 'Save found',
+      detectedHint: 'Opens directly, no need to browse for the file.',
+      notFound: 'No save was found at the default location. Choose the file; the picker starts in this folder when it exists.',
+      chooseOther: 'Choose another file',
       features: {
         resources: { title: 'Resources', desc: 'Edit your coins and gems' },
         navigation: { title: 'Navigation', desc: 'Travel instantly between islands' },
@@ -229,9 +267,21 @@ const translations: Record<Language, Translations> = {
     header: {
       title: 'Kingdom Two Crowns Save Editor',
       changeFile: 'Change file',
-      save: '💾 Save',
+      save: 'Save',
       backupCreated: 'Backup copy:',
-      filePath: '📁',
+      filePath: 'File',
+      reload: 'Reload file',
+      unsaved: 'Unsaved changes',
+      discardTitle: 'Discard unsaved changes?',
+      discardDescription: 'Edits made since the last save will be lost.',
+      discardConfirm: 'Discard changes',
+      cancel: 'Cancel',
+    },
+    nav: {
+      saveEditor: 'Save editor',
+      game: 'Game',
+      gameAssets: 'Game assets',
+      noSave: 'No save open',
     },
     context: {
       title: 'Context',
@@ -242,6 +292,8 @@ const translations: Record<Language, Translations> = {
       campaign: 'Campaign',
       challenge: 'Challenge Island',
       island: 'Island',
+      campaignShort: 'Campaign',
+      challengeShort: 'Challenge',
     },
     tabs: {
       inspector: 'Island Map & Inspector',
@@ -273,7 +325,7 @@ const translations: Record<Language, Translations> = {
       unmarkRange: 'Unmark range',
       standing: 'Standing',
       markedToCut: 'Marked to cut',
-      nearBeggarCampWarn: '⚠️ Near Beggar Camp (Do not cut!)',
+      nearBeggarCampWarn: 'Near Beggar Camp (Do not cut!)',
       totalWalls: 'Total Walls:',
       totalTrees: 'Total Trees:',
       rangeFrom: 'From X:',
@@ -282,11 +334,11 @@ const translations: Record<Language, Translations> = {
       level: 'Level',
       deitiesTitle: 'Shrines & Deities',
       unlockAllDeities: 'Unlock All Shrines',
-      activateAllDeities: '⚡ Activate All Shrines (Full Buff)',
+      activateAllDeities: 'Activate All Shrines (Full Buff)',
       lockAllDeities: 'Lock All Shrines',
-      deityStatusLocked: '🔒 Locked',
-      deityStatusUnlocked: '🔓 Unlocked',
-      deityStatusActive: '✨ Active Buff',
+      deityStatusLocked: 'Locked',
+      deityStatusUnlocked: 'Unlocked',
+      deityStatusActive: 'Active Buff',
       towers: 'Archer Towers & Ballistas',
       upgradeToL6: 'L6 (4 Archers)',
       upgradeToL5Roof: 'L5 (Roof)',
@@ -298,6 +350,19 @@ const translations: Record<Language, Translations> = {
       batchUpgradeTowersL6: 'Upgrade All Towers to L6 (4 Archers)',
       upgradeCastleIron: 'Upgrade Castle to Iron (Level 7)',
       upgradeCastleStone: 'Upgrade Castle to Stone (Level 4)',
+      all: 'All',
+      built: 'built',
+      mounds: 'mounds',
+      nearCamps: 'Near camps',
+      campDistance: 'Camp {distance}m',
+      globalBuff: 'Global buff',
+      notBuilt: 'Not built',
+      playerPosition: 'Position',
+      mapTitle: 'Island map',
+      mapDescription: 'Everything on the island, placed along the X axis.',
+      wallLevelHorn: 'Level 5 + Horn',
+      wallLevelIron: 'Level 5 (Iron)',
+      mound: 'Dirt Mound (L0)',
     },
     resources: {
       title: 'Resources',
@@ -330,8 +395,9 @@ const translations: Record<Language, Translations> = {
       formationOffset: 'Formation offset',
       teleportTitle: 'Teleport Ruler (Change Position)',
       teleportX: 'Target Position X',
-      teleportButton: '⚡ Teleport',
+      teleportButton: 'Teleport',
       teleportToCastle: 'Center / Castle',
+      threats: 'Threats',
     },
     combat: {
       title: 'Combat',
@@ -409,6 +475,11 @@ const translations: Record<Language, Translations> = {
       pathHint: 'Le sélecteur de fichier ouvrira automatiquement ce dossier',
       openFile: 'Ouvrir global-v35',
       loading: 'Chargement...',
+      editAssets: 'Modifier les fichiers du jeu',
+      detected: 'Sauvegarde détectée',
+      detectedHint: "S'ouvre directement, sans chercher le fichier.",
+      notFound: "Aucune sauvegarde trouvée à l'emplacement par défaut. Choisissez le fichier ; le sélecteur s'ouvre dans ce dossier s'il existe.",
+      chooseOther: 'Choisir un autre fichier',
       features: {
         resources: { title: 'Ressources', desc: 'Modifiez vos pièces et gemmes' },
         navigation: { title: 'Navigation', desc: 'Voyagez instantanément entre les îles' },
@@ -428,9 +499,21 @@ const translations: Record<Language, Translations> = {
     header: {
       title: 'Éditeur Kingdom Two Crowns',
       changeFile: 'Changer de fichier',
-      save: '💾 Sauvegarder',
+      save: 'Sauvegarder',
       backupCreated: 'Copie de sauvegarde:',
-      filePath: '📁',
+      filePath: 'Fichier',
+      reload: 'Recharger le fichier',
+      unsaved: 'Modifications non sauvegardées',
+      discardTitle: 'Abandonner les modifications ?',
+      discardDescription: 'Les modifications faites depuis la dernière sauvegarde seront perdues.',
+      discardConfirm: 'Abandonner',
+      cancel: 'Annuler',
+    },
+    nav: {
+      saveEditor: 'Sauvegarde',
+      game: 'Jeu',
+      gameAssets: 'Fichiers du jeu',
+      noSave: 'Aucune sauvegarde ouverte',
     },
     context: {
       title: 'Contexte',
@@ -441,6 +524,8 @@ const translations: Record<Language, Translations> = {
       campaign: 'Campagne',
       challenge: 'Île de défi',
       island: 'Île',
+      campaignShort: 'Campagne',
+      challengeShort: 'Défi',
     },
     tabs: {
       inspector: 'Carte & inspecteur d\'île',
@@ -472,7 +557,7 @@ const translations: Record<Language, Translations> = {
       unmarkRange: 'Démarquer la plage',
       standing: 'Debout',
       markedToCut: 'Marqué à abattre',
-      nearBeggarCampWarn: '⚠️ Près d\'un camp de vagabonds (ne pas abattre !)',
+      nearBeggarCampWarn: 'Près d\'un camp de vagabonds (ne pas abattre !)',
       totalWalls: 'Total des murs :',
       totalTrees: 'Total des arbres :',
       rangeFrom: 'De X :',
@@ -481,11 +566,11 @@ const translations: Record<Language, Translations> = {
       level: 'Niveau',
       deitiesTitle: 'Sanctuaires & divinités',
       unlockAllDeities: 'Débloquer tous les sanctuaires',
-      activateAllDeities: '⚡ Activer tous les sanctuaires (bonus complet)',
+      activateAllDeities: 'Activer tous les sanctuaires (bonus complet)',
       lockAllDeities: 'Verrouiller tous les sanctuaires',
-      deityStatusLocked: '🔒 Verrouillé',
-      deityStatusUnlocked: '🔓 Débloqué',
-      deityStatusActive: '✨ Bonus actif',
+      deityStatusLocked: 'Verrouillé',
+      deityStatusUnlocked: 'Débloqué',
+      deityStatusActive: 'Bonus actif',
       towers: 'Tours d\'archers & balistes',
       upgradeToL6: 'N6 (4 archers)',
       upgradeToL5Roof: 'N5 (toit)',
@@ -497,6 +582,19 @@ const translations: Record<Language, Translations> = {
       batchUpgradeTowersL6: 'Améliorer toutes les tours en N6 (4 archers)',
       upgradeCastleIron: 'Améliorer le château en fer (niveau 7)',
       upgradeCastleStone: 'Améliorer le château en pierre (niveau 4)',
+      all: 'Tous',
+      built: 'construits',
+      mounds: 'buttes',
+      nearCamps: 'Près des camps',
+      campDistance: 'Camp à {distance} m',
+      globalBuff: 'Bonus global',
+      notBuilt: 'Non construite',
+      playerPosition: 'Position',
+      mapTitle: "Carte de l'île",
+      mapDescription: "Tous les éléments de l'île, placés sur l'axe X.",
+      wallLevelHorn: 'Niveau 5 + cor',
+      wallLevelIron: 'Niveau 5 (fer)',
+      mound: 'Butte de terre (N0)',
     },
     resources: {
       title: 'Ressources',
@@ -529,8 +627,9 @@ const translations: Record<Language, Translations> = {
       formationOffset: 'Décalage formation',
       teleportTitle: 'Téléporter le monarque (changer de position)',
       teleportX: 'Position X cible',
-      teleportButton: '⚡ Téléporter',
+      teleportButton: 'Téléporter',
       teleportToCastle: 'Centre / Château',
+      threats: 'Menaces',
     },
     combat: {
       title: 'Combat',

@@ -46,16 +46,16 @@ jobs:
       release_id: ${{ steps.draft.outputs.id }}
     steps:
       - name: Checkout main
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
 
       # Manual recovery: rebuild an already pushed tag whose release is missing or a draft.
       - name: Use existing tag
@@ -242,14 +242,14 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout release tag
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.version.outputs.tag }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: 'npm'
 
       - name: Install Rust stable
