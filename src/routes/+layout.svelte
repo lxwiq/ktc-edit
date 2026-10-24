@@ -1,10 +1,15 @@
 <script lang="ts">
 	import '../app.css';
-	import '../kingdom-theme.css';
-	import UpdateBanner from '$lib/components/UpdateBanner.svelte';
-	
+	import { onMount } from 'svelte';
+	import { Toaster } from '$lib/components/ui/sonner';
+	import { updater } from '$lib/state/updater.svelte';
+
 	let { children } = $props();
+
+	onMount(() => {
+		updater.check();
+	});
 </script>
 
-<UpdateBanner />
+<Toaster theme="dark" position="bottom-right" closeButton />
 {@render children()}

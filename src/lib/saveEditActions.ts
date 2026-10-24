@@ -1,4 +1,4 @@
-import type { JSONValue } from "$lib/components/FieldEditor.svelte";
+import type { JSONValue } from "$lib/types";
 
 type MutableJSONObject = Record<string, any>;
 

@@ -17,7 +17,7 @@ Edit coins and gems, manage islands and units, and customize mounts and game set
 5. Change the values you need and click **Save**. The app creates a backup before writing.
 6. Start the game and check your changes.
 
-For asset settings, choose **Edit Game Assets** from the welcome screen. Select your game's Data folder if the default Steam path is unavailable, adjust settings, and use **Apply**. The Apple Silicon binary patches have their own Apply and Restore controls.
+For asset settings, choose **Edit game assets** from the welcome screen. The app looks for the game in every Steam library; if it is installed elsewhere, select the game folder once and it is remembered. Adjust settings and use **Apply**. The Apple Silicon binary patches have their own Apply and Restore controls.
 
 ## What you can edit
 
