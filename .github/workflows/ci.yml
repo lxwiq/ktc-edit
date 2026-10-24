@@ -97,8 +97,10 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      # Updater artifacts need the release signing key, which PR builds never get.
       - name: Build application
-        run: npm run tauri build
+        shell: bash
+        run: npm run tauri build -- --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
       - name: Upload bundles
         uses: actions/upload-artifact@v4

@@ -17,6 +17,14 @@ export interface Translations {
       recruitment: { title: string; desc: string };
     };
   };
+  updater: {
+    available: string;
+    saveFirst: string;
+    install: string;
+    later: string;
+    downloading: string;
+    failed: string;
+  };
   header: {
     title: string;
     changeFile: string;
@@ -210,6 +218,14 @@ const translations: Record<Language, Translations> = {
         recruitment: { title: 'Recruitment', desc: 'Add archers, workers and more' },
       },
     },
+    updater: {
+      available: 'Version {version} is available.',
+      saveFirst: 'Save your changes first: the app restarts after installing.',
+      install: 'Install and restart',
+      later: 'Later',
+      downloading: 'Downloading…',
+      failed: 'Update failed:',
+    },
     header: {
       title: 'Kingdom Two Crowns Save Editor',
       changeFile: 'Change file',
@@ -400,6 +416,14 @@ const translations: Record<Language, Translations> = {
         construction: { title: 'Construction', desc: 'Améliorez votre royaume' },
         recruitment: { title: 'Recrutement', desc: 'Ajoutez archers, ouvriers et plus' },
       },
+    },
+    updater: {
+      available: 'La version {version} est disponible.',
+      saveFirst: "Sauvegardez d'abord vos modifications : l'application redémarre après l'installation.",
+      install: 'Installer et redémarrer',
+      later: 'Plus tard',
+      downloading: 'Téléchargement…',
+      failed: 'Échec de la mise à jour :',
     },
     header: {
       title: 'Éditeur Kingdom Two Crowns',
